@@ -891,20 +891,37 @@ function app() {
       this.$nextTick(() => this.icons());
     },
     saveConfig() {
-      if (this.configHardcoded) return this.toast('Config dikunci (hardcode di file).', 'info');
-      if (!this.cfgDraft.supabaseUrl || !this.cfgDraft.supabaseKey) return this.toast('URL & Anon Key wajib diisi.', 'error');
-      try {
-        localStorage.setItem('ll_sb_url', this.cfgDraft.supabaseUrl.trim());
-        localStorage.setItem('ll_sb_key', this.cfgDraft.supabaseKey.trim());
-        localStorage.setItem('ll_ai_provider', this.cfgDraft.aiProvider || 'gemini');
-        localStorage.setItem('ll_ai_key', (this.cfgDraft.aiKey || '').trim());
-        localStorage.setItem('ll_ai_model', (this.cfgDraft.aiModel || '').trim());
-      } catch(e){}
-      this.cfg = { ...this.cfgDraft };
-      this.configOpen = false;
-      this.toast('Konfigurasi tersimpan.', 'success');
-      if (this.mode === 'cloud') { this.booting = true; this.initCloud(); }
-    },
+     if (this.configHardcoded) {
+    try {
+      localStorage.setItem('ll_ai_provider', this.cfgDraft.aiProvider || 'gemini');
+      localStorage.setItem('ll_ai_key', (this.cfgDraft.aiKey || '').trim());
+      localStorage.setItem('ll_ai_model', (this.cfgDraft.aiModel || '').trim());
+    } catch(e){}
+    // Update config runtime (AI-only)
+    this.cfg.aiProvider = this.cfgDraft.aiProvider;
+    this.cfg.aiKey = this.cfgDraft.aiKey;
+    this.cfg.aiModel = this.cfgDraft.aiModel;
+    this.configOpen = false;
+    this.toast('AI Key tersimpan. Supabase tetap pakai hardcode.', 'success');
+    return;
+  }
+
+  // Kalau TIDAK hardcode: simpan semuanya seperti biasa
+  if (!this.cfgDraft.supabaseUrl || !this.cfgDraft.supabaseKey) {
+    return this.toast('URL & Anon Key wajib diisi.', 'error');
+  }
+  try {
+    localStorage.setItem('ll_sb_url', this.cfgDraft.supabaseUrl.trim());
+    localStorage.setItem('ll_sb_key', this.cfgDraft.supabaseKey.trim());
+    localStorage.setItem('ll_ai_provider', this.cfgDraft.aiProvider || 'gemini');
+    localStorage.setItem('ll_ai_key', (this.cfgDraft.aiKey || '').trim());
+    localStorage.setItem('ll_ai_model', (this.cfgDraft.aiModel || '').trim());
+  } catch(e){}
+  this.cfg = { ...this.cfgDraft };
+  this.configOpen = false;
+  this.toast('Konfigurasi tersimpan.', 'success');
+  if (this.mode === 'cloud') { this.booting = true; this.initCloud(); }
+},
     exportConfig() {
       try {
         const data = JSON.stringify({
@@ -1571,19 +1588,27 @@ function app() {
        AI
        ═══════════════════════════════════════════════════════ */
     async callAI(prompt) {
-      if (!this.cfg.aiKey) throw new Error('AI API Key belum diisi.');
-      if (this.cfg.aiProvider === 'gemini') {
-        const model = this.cfg.aiModel || 'gemini-3.8-flash';
-        const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(this.cfg.aiKey);
-        const res = await fetch(url, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j?.error?.message || 'Gemini error');
-        return j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-      }
-        const model = this.cfg.aiModel || 'qwen/qwen3.8-27b';
+  if (!this.cfg.aiKey) throw new Error('AI API Key belum diisi.');
+
+  /* ═══════════════ GOOGLE GEMINI ═══════════════ */
+  if (this.cfg.aiProvider === 'gemini') {
+    // Menggunakan model Gemini terbaru yang Anda sebutkan
+    const model = this.cfg.aiModel || 'gemini-3.8-flash'; 
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + 
+                model + ':generateContent?key=' + encodeURIComponent(this.cfg.aiKey);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j?.error?.message || 'Gemini error');
+    return j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+  }
+
+  /* ═══════════════ GROQ ═══════════════ */
+  // Model qwen/qwen3.8-27b valid sesuai screenshot Anda
+  const model = this.cfg.aiModel || 'qwen/qwen3.8-27b'; 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -1873,22 +1898,31 @@ function app() {
     </div>
     <div class="p-6 space-y-4">
       <template x-if="configHardcoded">
-        <div class="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3 text-xs">
-          <div class="flex items-start gap-2">
-            <i data-lucide="lock" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5"></i>
-            <div>
-              <div class="font-bold text-emerald-800 dark:text-emerald-300">Config dikunci (hardcode)</div>
-              <div class="text-emerald-700 dark:text-emerald-400 mt-0.5">URL & Anon Key sudah di-hardcode. Semua device otomatis terkoneksi.</div>
-            </div>
-          </div>
-        </div>
-      </template>
+  <div class="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3 text-xs">
+    <div class="flex items-start gap-2">
+      <i data-lucide="lock" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5"></i>
       <div>
-        <label class="label">Supabase URL</label>
+        <div class="font-bold text-emerald-800 dark:text-emerald-300">Supabase terkunci (hardcode)</div>
+        <div class="text-emerald-700 dark:text-emerald-400 mt-0.5">
+          URL & Anon Key sudah di-hardcode — semua device otomatis terkoneksi. 
+          <b>AI Provider, Model, dan AI Key tetap bisa diisi bebas di bawah.</b>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+      <div>
+        <label class="label">
+  Supabase URL
+  <template x-if="configHardcoded"><span class="normal-case text-[10px] text-emerald-600 dark:text-emerald-400 ml-1">· dari file HTML</span></template>
+</label>
         <input x-model="cfgDraft.supabaseUrl" class="input" placeholder="https://yeuxxxx.supabase.co" :disabled="configHardcoded">
       </div>
       <div>
-        <label class="label">Supabase Anon Key</label>
+        <label class="label">
+  Supabase Anon Key
+  <template x-if="configHardcoded"><span class="normal-case text-[10px] text-emerald-600 dark:text-emerald-400 ml-1">· dari file HTML</span></template>
+</label>
         <textarea x-model="cfgDraft.supabaseKey" rows="2" class="input font-mono text-xs" placeholder="eyJk912EVHcxxxxxx" :disabled="configHardcoded"></textarea>
       </div>
       <div class="grid grid-cols-2 gap-3">
@@ -1900,13 +1934,14 @@ function app() {
           </select>
         </div>
         <div>
-          <label class="label">Model (opsional)</label>
-          <input x-model="cfgDraft.aiModel" class="input" :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-1.5-flash' : 'gpt-4o-mini'">
-        </div>
+  <label class="label">Model (opsional)</label>
+  <input x-model="cfgDraft.aiModel" class="input" 
+         :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-3.8-flash' : 'qwen/qwen3.8-27b'">
+</div>
       </div>
       <div>
         <label class="label">AI API Key</label>
-        <input x-model="cfgDraft.aiKey" type="password" class="input font-mono text-xs" placeholder="AIza... / sk-...">
+        <input x-model="cfgDraft.aiKey" type="password" class="input font-mono text-xs" placeholder="AIza... (Gemini) / gsk_... (Groq)">
         <p class="text-[11px] text-slate-500 mt-1">Kosongkan jika hanya pakai Mock Generator.</p>
       </div>
       <div class="rounded-xl border border-orange-200/60 dark:border-orange-800/40 bg-orange-50/70 dark:bg-orange-950/30 p-4">
@@ -1928,7 +1963,7 @@ function app() {
         💡 <b>Tips:</b> Hardcode URL + Anon Key di atas file HTML, lalu hosting file. Semua device yang buka URL akan otomatis terkoneksi tanpa setup apapun.
       </div>
       <div class="flex gap-2 pt-2">
-        <button @click="saveConfig()" class="btn btn-primary flex-1" :disabled="configHardcoded">
+        <button @click="saveConfig()" class="btn btn-primary flex-1">
           <i data-lucide="save" class="w-4 h-4"></i> Simpan
         </button>
         <button @click="configOpen=false" class="btn btn-ghost"><i data-lucide="x" class="w-4 h-4"></i></button>
