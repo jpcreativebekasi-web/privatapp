@@ -15,8 +15,8 @@
      - Kosongkan keduanya kalau ingin fallback ke Demo Mode.
      ═══════════════════════════════════════════════════════════════════════════ -->
 <script>
-  window.LIVELEARN_SUPABASE_URL = 'https://yeuzioircpgnetebxrrb.supabase.co';
-  window.LIVELEARN_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlldXppb2lyY3BnbmV0ZWJ4cnJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxODI0MjcsImV4cCI6MjEwNzc1ODQyN30._5RuAyOYwoVgtvT8XloWaJ4nYRS-VXQxuBLk912EVHc';
+  window.LIVELEARN_SUPABASE_URL = '';
+  window.LIVELEARN_SUPABASE_KEY = '';
   window.LIVELEARN_AI_KEY       = '';
 </script>
 
@@ -46,6 +46,13 @@
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  // Menentukan lokasi worker untuk PDF.js
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
 
 <style>
   [x-cloak] { display: none !important; }
@@ -1382,7 +1389,64 @@ function app() {
     /* ═══════════════════════════════════════════════════════
        GURU: MATERIALS
        ═══════════════════════════════════════════════════════ */
-    async createMaterial() {
+            handleMaterialUpload(ev) {
+      const file = ev.target.files?.[0];
+      if (!file) return;
+
+      // Jika yang diupload adalah PDF
+      if (file.type === 'application/pdf') {
+        if (typeof pdfjsLib === 'undefined') {
+          this.toast('Library PDF belum termuat. Coba refresh halaman.', 'error');
+          return;
+        }
+        this.toast('Mengekstrak teks dari PDF...', 'info');
+        
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const typedarray = new Uint8Array(e.target.result);
+            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+            let fullText = '';
+
+            // Looping semua halaman PDF
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items.map(item => item.str).join(' ');
+              fullText += pageText + '\n\n';
+            }
+
+            this.newMaterial.content = fullText.trim();
+            if (!this.newMaterial.title.trim()) {
+              this.newMaterial.title = file.name.replace(/\.[^/.]+$/, "");
+            }
+            this.toast('Teks PDF berhasil dimuat.', 'success');
+          } catch (err) {
+            this.toast('Gagal membaca PDF: ' + err.message, 'error');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } 
+      // Jika yang diupload adalah TXT atau MD
+      else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            this.newMaterial.content = e.target.result;
+            if (!this.newMaterial.title.trim()) {
+              this.newMaterial.title = file.name.replace(/\.[^/.]+$/, "");
+            }
+            this.toast('File materi berhasil dimuat.', 'success');
+          } catch (err) {
+            this.toast('Gagal membaca file: ' + err.message, 'error');
+          }
+        };
+        reader.readAsText(file);
+      }
+      
+      ev.target.value = ''; // Reset input agar bisa upload file yang sama
+    },
+	async createMaterial(){
       const f = this.newMaterial;
       if (!f.class_id) return this.toast('Pilih kelas.', 'error');
       if (!f.title.trim() || !f.content.trim()) return this.toast('Judul & konten wajib diisi.', 'error');
@@ -2305,7 +2369,16 @@ function app() {
                 </select>
               </div>
               <div><label class="label">Judul</label><input x-model="newMaterial.title" class="input" placeholder="Persamaan Kuadrat"></div>
-              <div><label class="label">Konten (Markdown)</label><textarea x-model="newMaterial.content" rows="8" class="input font-mono text-xs" placeholder="# Judul&#10;&#10;Materi..."></textarea></div>
+              <div>
+  <div class="flex items-center justify-between mb-1">
+    <label class="label mb-0">Konten (Markdown)</label>
+    <label class="btn btn-ghost btn-sm cursor-pointer" title="Upload file .txt, .md, atau .pdf">
+  <i data-lucide="upload" class="w-3 h-3"></i> Upload File
+  <input type="file" accept=".txt,.md,.pdf" @change="handleMaterialUpload($event)" class="hidden">
+</label>
+  </div>
+  <textarea x-model="newMaterial.content" rows="8" class="input font-mono text-xs" placeholder="# Judul&#10;&#10;Materi..."></textarea>
+</div>
               <div class="rounded-xl border border-orange-200 dark:border-orange-800/60 bg-gradient-to-br from-orange-50 to-white dark:from-orange-950/40 dark:to-slate-900/40 p-3">
                 <label class="label text-orange-700 dark:text-orange-400">✨ Generate Materi dengan AI</label>
                 <div class="flex gap-2">
@@ -2775,7 +2848,7 @@ function app() {
     </div>
 
     <footer class="border-t border-slate-200/60 dark:border-slate-800/60 py-4 text-center text-xs text-slate-500">
-      LiveLearn © <span x-text="new Date().getFullYear()"></span> · <span x-text="mode==='demo' ? 'Demo Mode' : 'Cloud Mode'"></span> · <span class="gradient-text font-bold">Modern Learning Platform</span>
+       Adjarindo Creative Aksara © <span x-text="new Date().getFullYear()"></span> · <span x-text="mode==='demo' ? 'Demo Mode' : 'Cloud Mode'"></span> · <span class="gradient-text font-bold">Modern Learning Platform</span>
     </footer>
   </div>
 </template>
