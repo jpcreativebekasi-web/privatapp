@@ -2569,9 +2569,9 @@ function app() {
                         </label>
                         <span class="text-xs font-bold w-4" x-text="String.fromCharCode(65+i)"></span>
                         <input x-model="newQuiz.options[i]" class="input flex-1 text-sm" :placeholder="'Opsi ' + String.fromCharCode(65+i)">
-                        <label class="text-slate-500 hover:text-orange-500 p-1 cursor-pointer" :title="'Upload gambar opsi ' + String.fromCharCode(65+i)">
-                          <i data-lucide="image" class="w-3.5 h-3.5"></i>
-                          <input type="file" accept="image/*" @change="handleOptionImageUpload($event, i)" class="hidden" :disabled="uploadingImage">
+                        <label class="text-slate-400 hover:text-sky-500 p-1.5 cursor-pointer bg-slate-100 dark:bg-slate-800 rounded-md hover:bg-sky-50 dark:hover:bg-sky-900/50 transition" :title="'Upload gambar opsi ' + String.fromCharCode(65+i)">
+                           <i data-lucide="image-plus" class="w-4 h-4"></i>
+                           <input type="file" accept="image/*" @change="handleOptionImageUpload($event, i)" class="hidden" :disabled="uploadingImage">
                         </label>
                         <button @click="removeOption(i)" class="text-slate-400 hover:text-rose-500 p-1" title="Hapus opsi">
                           <i data-lucide="x" class="w-3.5 h-3.5"></i>
