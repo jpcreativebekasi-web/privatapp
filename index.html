@@ -7,12 +7,6 @@
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      ⚙️  HARDCODE CONFIG — Isi SEKALI, semua device otomatis terkoneksi
-     ═══════════════════════════════════════════════════════════════════════════
-     - Isi LIVELEARN_SUPABASE_URL & _KEY jika ingin semua device (siswa & guru)
-       otomatis terkoneksi ke Supabase yang sama TANPA setup apapun.
-     - Anon Key AMAN dipublik karena dilindungi RLS.
-     - AI API Key JANGAN di-hardcode di file publik (biarkan user input di Settings).
-     - Kosongkan keduanya kalau ingin fallback ke Demo Mode.
      ═══════════════════════════════════════════════════════════════════════════ -->
 <script>
   window.LIVELEARN_SUPABASE_URL = 'https://yeuzioircpgnetebxrrb.supabase.co';
@@ -122,7 +116,7 @@
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    SKEMA DATABASE SUPABASE — JALANKAN DI SUPABASE SQL EDITOR
-   ═══════════════════════════════════════════════════════════════════════════
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 -- 1. Profiles
 CREATE TABLE public.profiles (
@@ -519,7 +513,7 @@ function app() {
     toasts: [],
     viewingMaterial: null,
     selectedMaterialId: null,
-
+    editingQuizId: null,
     newClass: { title:'' },
     joinCode: '',
     newMaterial: { class_id:'', title:'', content:'' },
@@ -1389,7 +1383,7 @@ function app() {
     /* ═══════════════════════════════════════════════════════
        GURU: MATERIALS
        ═══════════════════════════════════════════════════════ */
-            handleMaterialUpload(ev) {
+    handleMaterialUpload(ev) {
       const file = ev.target.files?.[0];
       if (!file) return;
 
@@ -1446,7 +1440,7 @@ function app() {
       
       ev.target.value = ''; // Reset input agar bisa upload file yang sama
     },
-	async createMaterial(){
+    async createMaterial() {
       const f = this.newMaterial;
       if (!f.class_id) return this.toast('Pilih kelas.', 'error');
       if (!f.title.trim() || !f.content.trim()) return this.toast('Judul & konten wajib diisi.', 'error');
@@ -1505,24 +1499,67 @@ function app() {
       }
 
       try {
-        await this.dbInsert('quizzes', {
-          material_id: this.selectedMaterialId,
-          guru_id: this.profile.id,
-          question: q.question.trim(),
-          question_image: q.question_image || null,
-          options: opts,
-          option_images: alignedImages,
-          correct_option: q.correct_option,
-          explanation: q.explanation.trim()
-        });
+        if (this.editingQuizId) {
+          // MODE EDIT: Update data yang sudah ada
+          await this.dbUpdate('quizzes', this.editingQuizId, {
+            question: q.question.trim(),
+            question_image: q.question_image || null,
+            options: opts,
+            option_images: alignedImages,
+            correct_option: q.correct_option,
+            explanation: q.explanation.trim()
+          });
+          this.toast('Soal berhasil diupdate.', 'success');
+          this.editingQuizId = null; // Matikan mode edit
+        } else {
+          // MODE TAMBAH: Buat data baru
+          await this.dbInsert('quizzes', {
+            material_id: this.selectedMaterialId,
+            guru_id: this.profile.id,
+            question: q.question.trim(),
+            question_image: q.question_image || null,
+            options: opts,
+            option_images: alignedImages,
+            correct_option: q.correct_option,
+            explanation: q.explanation.trim()
+          });
+          this.toast('Soal ditambahkan.', 'success');
+        }
+
+        // Reset form
         this.newQuiz = {
           question: '', question_image: '',
           options: ['','','',''], option_images: ['','','',''],
           correct_option: 0, explanation: ''
         };
         this.quizzes = await this.fetchQuizzesForMaterial(this.selectedMaterialId);
-        this.toast('Soal ditambahkan.', 'success');
       } catch (e) { this.toast(e.message, 'error'); }
+    },
+    editQuiz(q) {
+      this.editingQuizId = q.id;
+      // Masukkan data soal yang dipilih ke dalam form input
+      this.newQuiz = {
+        question: q.question,
+        question_image: q.question_image || '',
+        options: [...q.options], // Copy array opsi
+        option_images: q.option_images ? [...q.option_images] : q.options.map(() => ''),
+        correct_option: q.correct_option,
+        explanation: q.explanation
+      };
+      // Scroll ke form input (opsional, biar user sadar formnya berubah)
+      setTimeout(() => {
+        const formEl = document.getElementById('quiz-form');
+        if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    },
+    cancelEditQuiz() {
+      this.editingQuizId = null;
+      // Kosongkan form kembali seperti semula
+      this.newQuiz = {
+        question: '', question_image: '',
+        options: ['','','',''], option_images: ['','','',''],
+        correct_option: 0, explanation: ''
+      };
     },
     async deleteQuiz(id) {
       if (!confirm('Hapus soal ini?')) return;
@@ -1652,43 +1689,41 @@ function app() {
        AI
        ═══════════════════════════════════════════════════════ */
     async callAI(prompt) {
-  if (!this.cfg.aiKey) throw new Error('AI API Key belum diisi.');
+      if (!this.cfg.aiKey) throw new Error('AI API Key belum diisi.');
 
-  /* ═══════════════ GOOGLE GEMINI ═══════════════ */
-  if (this.cfg.aiProvider === 'gemini') {
-    // Menggunakan model Gemini terbaru yang Anda sebutkan
-    const model = this.cfg.aiModel || 'gemini-3.8-flash'; 
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + 
-                model + ':generateContent?key=' + encodeURIComponent(this.cfg.aiKey);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j?.error?.message || 'Gemini error');
-    return j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-  }
+      /* ═══════════════ GOOGLE GEMINI ═══════════════ */
+      if (this.cfg.aiProvider === 'gemini') {
+        const model = this.cfg.aiModel || 'gemini-1.5-flash'; 
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + 
+                    model + ':generateContent?key=' + encodeURIComponent(this.cfg.aiKey);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j?.error?.message || 'Gemini error');
+        return j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+      }
 
-  /* ═══════════════ GROQ ═══════════════ */
-  // Model qwen/qwen3.8-27b valid sesuai screenshot Anda
-  const model = this.cfg.aiModel || 'qwen/qwen3.8-27b'; 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + this.cfg.aiKey
+      /* ═══════════════ GROQ ═══════════════ */
+      const model = this.cfg.aiModel || 'qwen/qwen3.8-27b'; 
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + this.cfg.aiKey
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7
+        })
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error?.message || 'Groq error');
+      return j?.choices?.[0]?.message?.content || '';
     },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7
-    })
-  });
-  const j = await res.json();
-  if (!res.ok) throw new Error(j?.error?.message || 'Groq error');
-  return j?.choices?.[0]?.message?.content || '';
-},
     parseAIJSON(text) {
       let t = (text||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
       const a = t.indexOf('['), o = t.indexOf('{');
@@ -2000,7 +2035,7 @@ function app() {
         <div>
   <label class="label">Model (opsional)</label>
   <input x-model="cfgDraft.aiModel" class="input" 
-         :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-3.8-flash' : 'qwen/qwen3.8-27b'">
+         :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-1.5-flash' : 'qwen/qwen3.8-27b'">
 </div>
       </div>
       <div>
@@ -2134,27 +2169,14 @@ function app() {
             </div>
             <div class="flex flex-col sm:flex-row gap-4 items-center">
               <div class="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
-                <canvas x-init="
-                  try {
-                    if (window.QRCode && demoLoginUrl) {
-                      window.QRCode.toCanvas($el, demoLoginUrl, { width: 180, margin: 1, color: { dark: '#0c4a6e', light: '#ffffff' } },
-                        function(err){ if (err) console.warn('QR:', err); });
-                    }
-                  } catch(e) { console.warn('QR init:', e); }
-                " class="block"></canvas>
+                <canvas x-init="initQRCode($el)" class="block"></canvas>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
                   Scan QR untuk login sebagai <b>Ibu Sari Wulandari (Guru)</b>.
                 </div>
                 <div class="bg-white rounded-lg p-2 border border-slate-200 mb-2 overflow-hidden">
-                  <svg x-init="
-                    try {
-                      if (window.JsBarcode) {
-                        window.JsBarcode($el, 'DEMO-GURU-SARI', { format:'CODE128', width:2, height:50, lineColor:'#0c4a6e', background:'#ffffff', displayValue:true, fontSize:12, margin:6 });
-                      }
-                    } catch(e) { console.warn('Barcode:', e); }
-                  " class="block mx-auto max-w-full"></svg>
+                  <svg x-init="initBarcode($el)" class="block mx-auto max-w-full"></svg>
                 </div>
                 <button @click="demoLogin('sari@demo.local')" class="btn btn-primary btn-sm w-full">
                   <i data-lucide="log-in" class="w-3 h-3"></i> Login via QR
@@ -2453,7 +2475,8 @@ function app() {
                       </div>
                       <div class="text-[11px] text-slate-500 italic mt-1.5" x-text="'Penjelasan: '+q.explanation"></div>
                     </div>
-                    <button @click="deleteQuiz(q.id)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-lg self-start"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                    <button @click="editQuiz(q)" class="text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-950/50 p-1.5 rounded-lg self-start" title="Edit Soal"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+					<button @click="deleteQuiz(q.id)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-lg self-start"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                   </div>
                 </div>
               </template>
@@ -2475,7 +2498,7 @@ function app() {
                 </button>
               </div>
 
-              <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
+              <div id="quiz-form" class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
                 <div class="flex items-center justify-between gap-2 flex-wrap">
                   <div class="text-xs font-bold text-slate-500 uppercase">Tambah Manual</div>
                   <div class="flex gap-1.5">
@@ -2554,11 +2577,20 @@ function app() {
                 </div>
 
                 <div><label class="label">Penjelasan</label><textarea x-model="newQuiz.explanation" rows="2" class="input text-sm"></textarea></div>
-                <button @click="createQuiz()" class="btn btn-primary w-full" :disabled="uploadingImage">
-                  <template x-if="uploadingImage"><i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i></template>
-                  <template x-if="!uploadingImage"><i data-lucide="plus" class="w-4 h-4"></i></template>
-                  Tambah Soal
-                </button>
+                <div class="flex gap-2 pt-2">
+                  <!-- Tombol Batal Edit (Hanya muncul saat mode edit) -->
+                  <template x-if="editingQuizId">
+                    <button @click="cancelEditQuiz()" class="btn btn-ghost w-full text-rose-500">
+                      <i data-lucide="x" class="w-4 h-4"></i> Batal Edit
+                    </button>
+                  </template>
+
+                  <button @click="createQuiz()" class="btn btn-primary w-full" :disabled="uploadingImage">
+                    <template x-if="uploadingImage"><i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i></template>
+                    <template x-if="!uploadingImage"><i :data-lucide="editingQuizId ? 'save' : 'plus'" class="w-4 h-4"></i></template>
+                    <span x-text="editingQuizId ? 'Update Soal' : 'Tambah Soal'"></span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2848,7 +2880,7 @@ function app() {
     </div>
 
     <footer class="border-t border-slate-200/60 dark:border-slate-800/60 py-4 text-center text-xs text-slate-500">
-       Adjarindo Creative Aksara © <span x-text="new Date().getFullYear()"></span> · <span x-text="mode==='demo' ? 'Demo Mode' : 'Cloud Mode'"></span> · <span class="gradient-text font-bold">Modern Learning Platform</span>
+      Adjarindo Creative Aksara © <span x-text="new Date().getFullYear()"></span> · <span x-text="mode==='demo' ? 'Demo Mode' : 'Cloud Mode'"></span> · <span class="gradient-text font-bold">Modern Learning Platform</span>
     </footer>
   </div>
 </template>
