@@ -118,6 +118,7 @@
    SKEMA DATABASE SUPABASE — JALANKAN DI SUPABASE SQL EDITOR
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/*
 -- 1. Profiles
 CREATE TABLE public.profiles (
   id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
@@ -276,8 +277,7 @@ CREATE POLICY "quiz_images_auth_insert" ON storage.objects
   FOR INSERT WITH CHECK (bucket_id = 'quiz-images' AND auth.role() = 'authenticated');
 CREATE POLICY "quiz_images_owner_delete" ON storage.objects
   FOR DELETE USING (bucket_id = 'quiz-images' AND auth.uid()::text = (storage.foldername(name))[1]);
-
-   ═══════════════════════════════════════════════════════════════════════════ */
+*/
 
 /* ═══════════════════════════════════════════════════════════════════════════
    DEMO SEED DATA
@@ -596,6 +596,23 @@ function app() {
         this.booting = false;
       }
       this.$nextTick(() => this.icons());
+    },
+
+    initQRCode(el) {
+      try {
+        if (window.QRCode && this.demoLoginUrl) {
+          window.QRCode.toCanvas(el, this.demoLoginUrl, { width: 180, margin: 1, color: { dark: '#0c4a6e', light: '#ffffff' } },
+            function(err){ if (err) console.warn('QR:', err); });
+        }
+      } catch(e) { console.warn('QR init:', e); }
+    },
+
+    initBarcode(el) {
+      try {
+        if (window.JsBarcode) {
+          window.JsBarcode(el, 'DEMO-GURU-SARI', { format:'CODE128', width:2, height:50, lineColor:'#0c4a6e', background:'#ffffff', displayValue:true, fontSize:12, margin:6 });
+        }
+      } catch(e) { console.warn('Barcode:', e); }
     },
 
     bootWatch() {
