@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LiveLearn — Interactive Learning Platform</title>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     ⚙️  HARDCODE CONFIG — Isi SEKALI, semua device otomatis terkoneksi
-     ═══════════════════════════════════════════════════════════════════════════ -->
 <script>
   window.LIVELEARN_SUPABASE_URL = 'https://yeuzioircpgnetebxrrb.supabase.co';
   window.LIVELEARN_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlldXppb2lyY3BnbmV0ZWJ4cnJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxODI0MjcsImV4cCI6MjEwNzc1ODQyN30._5RuAyOYwoVgtvT8XloWaJ4nYRS-VXQxuBLk912EVHc';
@@ -42,7 +39,6 @@
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-  // Menentukan lokasi worker untuk PDF.js
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
@@ -115,171 +111,6 @@
 
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
-   SKEMA DATABASE SUPABASE — JALANKAN DI SUPABASE SQL EDITOR
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-/*
--- 1. Profiles
-CREATE TABLE public.profiles (
-  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
-  name TEXT NOT NULL,
-  role TEXT CHECK (role IN ('guru', 'siswa')) NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 2. Classes
-CREATE TABLE public.classes (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  guru_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  siswa_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-  class_code TEXT UNIQUE NOT NULL,
-  title TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. Class Members
-CREATE TABLE public.class_members (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  class_id UUID REFERENCES public.classes(id) ON DELETE CASCADE NOT NULL,
-  siswa_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  joined_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(class_id, siswa_id)
-);
-
--- 4. Materials
-CREATE TABLE public.materials (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  guru_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  class_id UUID REFERENCES public.classes(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  content TEXT NOT NULL,
-  is_active BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. Quizzes (dengan gambar)
-CREATE TABLE public.quizzes (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  material_id UUID REFERENCES public.materials(id) ON DELETE CASCADE NOT NULL,
-  guru_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  question TEXT NOT NULL,
-  question_image TEXT,
-  options JSONB NOT NULL,
-  option_images JSONB DEFAULT '[]'::jsonb,
-  correct_option INT NOT NULL,
-  explanation TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 6. Quiz Submissions
-CREATE TABLE public.quiz_submissions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  quiz_id UUID REFERENCES public.quizzes(id) ON DELETE CASCADE NOT NULL,
-  siswa_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  student_answer INT NOT NULL,
-  is_correct BOOLEAN NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 7. User Settings
-CREATE TABLE public.user_settings (
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE PRIMARY KEY,
-  theme TEXT DEFAULT 'dark',
-  ai_provider TEXT,
-  ai_model TEXT,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- TRIGGER AUTO-PROFILE
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, name, role)
-  VALUES (NEW.id,
-          COALESCE(NEW.raw_user_meta_data->>'name','User'),
-          COALESCE(NEW.raw_user_meta_data->>'role','siswa'))
-  ON CONFLICT (id) DO NOTHING;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- RLS
-ALTER TABLE public.profiles          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.classes           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.class_members     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.materials         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quizzes           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.quiz_submissions  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_settings     ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "profiles_select_all" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "profiles_insert_own" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
-CREATE POLICY "profiles_update_own" ON public.profiles FOR UPDATE USING (auth.uid() = id);
-
-CREATE POLICY "classes_select" ON public.classes FOR SELECT USING (
-  guru_id = auth.uid() OR siswa_id = auth.uid()
-  OR EXISTS (SELECT 1 FROM public.class_members cm WHERE cm.class_id = classes.id AND cm.siswa_id = auth.uid())
-);
-CREATE POLICY "classes_insert" ON public.classes FOR INSERT WITH CHECK (guru_id = auth.uid());
-CREATE POLICY "classes_update" ON public.classes FOR UPDATE USING (guru_id = auth.uid());
-CREATE POLICY "classes_delete" ON public.classes FOR DELETE USING (guru_id = auth.uid());
-
-CREATE POLICY "cm_select" ON public.class_members FOR SELECT USING (
-  siswa_id = auth.uid() OR EXISTS (SELECT 1 FROM public.classes c WHERE c.id = class_members.class_id AND c.guru_id = auth.uid())
-);
-CREATE POLICY "cm_insert" ON public.class_members FOR INSERT WITH CHECK (siswa_id = auth.uid());
-CREATE POLICY "cm_delete" ON public.class_members FOR DELETE USING (
-  siswa_id = auth.uid() OR EXISTS (SELECT 1 FROM public.classes c WHERE c.id = class_members.class_id AND c.guru_id = auth.uid())
-);
-
-CREATE POLICY "materials_select" ON public.materials FOR SELECT USING (
-  guru_id = auth.uid() OR (is_active = true AND EXISTS (
-    SELECT 1 FROM public.class_members cm WHERE cm.class_id = materials.class_id AND cm.siswa_id = auth.uid()
-  ))
-);
-CREATE POLICY "materials_insert" ON public.materials FOR INSERT WITH CHECK (guru_id = auth.uid());
-CREATE POLICY "materials_update" ON public.materials FOR UPDATE USING (guru_id = auth.uid());
-CREATE POLICY "materials_delete" ON public.materials FOR DELETE USING (guru_id = auth.uid());
-
-CREATE POLICY "quizzes_select" ON public.quizzes FOR SELECT USING (
-  guru_id = auth.uid() OR EXISTS (
-    SELECT 1 FROM public.materials m JOIN public.class_members cm ON cm.class_id = m.class_id
-    WHERE m.id = quizzes.material_id AND cm.siswa_id = auth.uid() AND m.is_active = true
-  )
-);
-CREATE POLICY "quizzes_insert" ON public.quizzes FOR INSERT WITH CHECK (guru_id = auth.uid());
-CREATE POLICY "quizzes_update" ON public.quizzes FOR UPDATE USING (guru_id = auth.uid());
-CREATE POLICY "quizzes_delete" ON public.quizzes FOR DELETE USING (guru_id = auth.uid());
-
-CREATE POLICY "submissions_select" ON public.quiz_submissions FOR SELECT USING (
-  siswa_id = auth.uid() OR EXISTS (SELECT 1 FROM public.quizzes q WHERE q.id = quiz_submissions.quiz_id AND q.guru_id = auth.uid())
-);
-CREATE POLICY "submissions_insert" ON public.quiz_submissions FOR INSERT WITH CHECK (siswa_id = auth.uid());
-
-CREATE POLICY "user_settings_own" ON public.user_settings FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
--- REALTIME
-ALTER TABLE public.quiz_submissions REPLICA IDENTITY FULL;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.quiz_submissions;
-
--- STORAGE untuk gambar kuis
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('quiz-images', 'quiz-images', true) ON CONFLICT (id) DO NOTHING;
-
-CREATE POLICY "quiz_images_public_read" ON storage.objects
-  FOR SELECT USING (bucket_id = 'quiz-images');
-CREATE POLICY "quiz_images_auth_insert" ON storage.objects
-  FOR INSERT WITH CHECK (bucket_id = 'quiz-images' AND auth.role() = 'authenticated');
-CREATE POLICY "quiz_images_owner_delete" ON storage.objects
-  FOR DELETE USING (bucket_id = 'quiz-images' AND auth.uid()::text = (storage.foldername(name))[1]);
-*/
-
-/* ═══════════════════════════════════════════════════════════════════════════
    DEMO SEED DATA
    ═══════════════════════════════════════════════════════════════════════════ */
 function seedDemoData() {
@@ -290,26 +121,16 @@ function seedDemoData() {
     { id:'guru-1',  email:'sari@demo.local',  name:'Ibu Sari Wulandari', role:'guru',  created_at: iso(30) },
     { id:'guru-2',  email:'budi@demo.local',  name:'Pak Budi Hartono',   role:'guru',  created_at: iso(28) },
     { id:'siswa-1', email:'andi@demo.local',  name:'Andi Pratama',       role:'siswa', created_at: iso(25) },
-    { id:'siswa-2', email:'rina@demo.local',  name:'Rina Marlina',       role:'siswa', created_at: iso(24) },
-    { id:'siswa-3', email:'doni@demo.local',  name:'Doni Saputra',       role:'siswa', created_at: iso(23) },
-    { id:'siswa-4', email:'sinta@demo.local', name:'Sinta Dewi',         role:'siswa', created_at: iso(22) },
-    { id:'siswa-5', email:'fajar@demo.local', name:'Fajar Nugroho',      role:'siswa', created_at: iso(20) }
+    { id:'siswa-2', email:'rina@demo.local',  name:'Rina Marlina',       role:'siswa', created_at: iso(24) }
   ];
 
   const classes = [
-    { id:'class-1', guru_id:'guru-1', siswa_id:null, class_code:'MTK01', title:'Matematika Dasar Kelas X', created_at: iso(20) },
-    { id:'class-2', guru_id:'guru-1', siswa_id:null, class_code:'IPA02', title:'IPA Terpadu — Biologi & Fisika', created_at: iso(18) },
-    { id:'class-3', guru_id:'guru-2', siswa_id:null, class_code:'BIG03', title:'Bahasa Inggris Intermediate', created_at: iso(15) }
+    { id:'class-1', guru_id:'guru-1', siswa_id:null, class_code:'MTK01', title:'Matematika Dasar Kelas X', created_at: iso(20) }
   ];
 
   const class_members = [
     { id:'cm-1', class_id:'class-1', siswa_id:'siswa-1', joined_at: iso(19) },
-    { id:'cm-2', class_id:'class-1', siswa_id:'siswa-2', joined_at: iso(19) },
-    { id:'cm-3', class_id:'class-1', siswa_id:'siswa-3', joined_at: iso(18) },
-    { id:'cm-4', class_id:'class-2', siswa_id:'siswa-1', joined_at: iso(17) },
-    { id:'cm-5', class_id:'class-2', siswa_id:'siswa-4', joined_at: iso(16) },
-    { id:'cm-6', class_id:'class-3', siswa_id:'siswa-2', joined_at: iso(14) },
-    { id:'cm-7', class_id:'class-3', siswa_id:'siswa-5', joined_at: iso(13) }
+    { id:'cm-2', class_id:'class-1', siswa_id:'siswa-2', joined_at: iso(19) }
   ];
 
   const materials = [
@@ -332,149 +153,15 @@ Persamaan kuadrat adalah persamaan polinomial berderajat dua dengan bentuk umum 
 - D < 0 → tidak ada akar real
 
 ## Contoh
-x² - 5x + 6 = 0 → (x - 2)(x - 3) = 0 → x = 2 atau x = 3
-
-## Kesimpulan
-Kuasai bentuk umum dan tiga metode utama untuk menyelesaikan variasi soal.` },
-
-    { id:'mat-2', guru_id:'guru-1', class_id:'class-1', is_active:false, created_at: iso(15),
-      title:'Fungsi Linear & Grafiknya',
-      content:`# Fungsi Linear
-
-## Definisi
-Bentuk **f(x) = mx + c**, dengan m = gradien, c = titik potong sumbu-y.
-
-## Gradien
-m = (y₂ - y₁) / (x₂ - x₁)
-
-## Sifat
-- Grafik garis lurus
-- m > 0 naik, m < 0 turun, m = 0 horizontal
-
-## Aplikasi
-Ekonomi, fisika, statistik.` },
-
-    { id:'mat-3', guru_id:'guru-1', class_id:'class-2', is_active:true, created_at: iso(12),
-      title:'Sel dan Strukturnya',
-      content:`# Sel — Unit Terkecil Kehidupan
-
-## Pengertian
-Unit struktural & fungsional terkecil penyusun makhluk hidup.
-
-## Struktur Umum
-- **Membran sel** — atur lalu lintas zat
-- **Sitoplasma** — cairan sel
-- **Nukleus** — pusat kendali (DNA)
-- **Mitokondria** — respirasi, penghasil energi
-- **Ribosom** — sintesis protein
-- **Badan Golgi** — pengemasan protein
-
-## Perbedaan Sel Hewan vs Tumbuhan
-| Aspek | Hewan | Tumbuhan |
-|-------|-------|----------|
-| Dinding sel | Tidak | Ada (selulosa) |
-| Kloroplas | Tidak | Ada |
-| Vakuola | Kecil | Besar & sentral |
-
-## Kesimpulan
-Setiap organel memiliki fungsi khusus yang saling mendukung.` },
-
-    { id:'mat-4', guru_id:'guru-1', class_id:'class-2', is_active:true, created_at: iso(10),
-      title:'Hukum Newton tentang Gerak',
-      content:`# Hukum Newton
-
-## Hukum I — Kelembaman
-Benda tetap diam/bergerak lurus beraturan jika ΣF = 0.
-
-## Hukum II — Percepatan
-**F = m · a**
-
-## Hukum III — Aksi-Reaksi
-F_aksi = -F_reaksi
-
-## Penerapan
-- Rem kendaraan
-- Roket terbang
-- Berjalan kaki
-
-## Kesimpulan
-Fondasi mekanika klasik.` },
-
-    { id:'mat-5', guru_id:'guru-2', class_id:'class-3', is_active:true, created_at: iso(8),
-      title:'Simple Present Tense',
-      content:`# Simple Present Tense
-
-## Fungsi
-Kebiasaan, fakta umum, kebenaran universal.
-
-## Rumus
-- **+** S + V1 (+s/es orang ke-3 tunggal) + O
-- **-** S + do/does + not + V1 + O
-- **?** Do/Does + S + V1 + O?
-
-## Contoh
-- I **study** English every day.
-- She **does not like** coffee.
-- **Does** he **play** football?
-
-## Kesimpulan
-Tenses dasar wajib untuk komunikasi sehari-hari.` },
-
-    { id:'mat-6', guru_id:'guru-2', class_id:'class-3', is_active:false, created_at: iso(5),
-      title:'Reading Comprehension Strategies',
-      content:`# Reading Comprehension
-
-## Strategi
-1. **Skimming** — gambaran umum
-2. **Scanning** — cari info spesifik
-3. **Intensive** — detail
-4. **Extensive** — santai
-
-## Kesimpulan
-Kuasai 4 strategi untuk pemahaman bacaan optimal.` }
+x² - 5x + 6 = 0 → (x - 2)(x - 3) = 0 → x = 2 atau x = 3` }
   ];
 
   const quizzes = [
-    { id:'qz-1', material_id:'mat-1', guru_id:'guru-1', created_at: iso(16), question:'Bentuk umum persamaan kuadrat adalah…', question_image:'', options:['ax + b = 0','ax² + bx + c = 0','ax³ + bx² + cx + d = 0','y = mx + c'], option_images:['','','',''], correct_option:1, explanation:'Persamaan kuadrat selalu berderajat dua: ax² + bx + c = 0 dengan a ≠ 0.' },
-    { id:'qz-2', material_id:'mat-1', guru_id:'guru-1', created_at: iso(16), question:'Jika diskriminan D = 0, maka persamaan kuadrat memiliki…', question_image:'', options:['Dua akar real berbeda','Satu akar real (kembar)','Tidak ada akar real','Tiga akar real'], option_images:['','','',''], correct_option:1, explanation:'Saat D = 0, akar kembar.' },
-    { id:'qz-3', material_id:'mat-1', guru_id:'guru-1', created_at: iso(16), question:'Akar-akar dari x² - 5x + 6 = 0 adalah…', question_image:'', options:['x = 1 atau x = 6','x = 2 atau x = 3','x = -2 atau x = -3','x = 0 atau x = 5'], option_images:['','','',''], correct_option:1, explanation:'Faktorkan: (x-2)(x-3) = 0.' },
-    { id:'qz-4', material_id:'mat-3', guru_id:'guru-1', created_at: iso(11), question:'Organel tempat respirasi sel adalah…', question_image:'', options:['Ribosom','Mitokondria','Badan Golgi','Nukleus'], option_images:['','','',''], correct_option:1, explanation:'Mitokondria = the powerhouse of the cell.' },
-    { id:'qz-5', material_id:'mat-3', guru_id:'guru-1', created_at: iso(11), question:'Organel yang HANYA dimiliki sel tumbuhan…', question_image:'', options:['Mitokondria','Nukleus','Kloroplas','Ribosom'], option_images:['','','',''], correct_option:2, explanation:'Kloroplas untuk fotosintesis.' },
-    { id:'qz-6', material_id:'mat-3', guru_id:'guru-1', created_at: iso(11), question:'Fungsi utama membran sel adalah…', question_image:'', options:['Menghasilkan energi','Mengatur keluar-masuknya zat','Menyimpan DNA','Mensintesis protein'], option_images:['','','',''], correct_option:1, explanation:'Membran sel selektif permeabel.' },
-    { id:'qz-7', material_id:'mat-4', guru_id:'guru-1', created_at: iso(9), question:'Hukum Newton yang menyatakan "F = m · a" adalah…', question_image:'', options:['Hukum I','Hukum II','Hukum III','Hukum Gravitasi'], option_images:['','','',''], correct_option:1, explanation:'Hukum II Newton tentang percepatan.' },
-    { id:'qz-8', material_id:'mat-4', guru_id:'guru-1', created_at: iso(9), question:'Contoh penerapan Hukum III Newton…', question_image:'', options:['Mobil mengerem mendadak','Roket meluncur ke atas','Bola menggelinding','Air mengalir ke bawah'], option_images:['','','',''], correct_option:1, explanation:'Roket = aksi-reaksi.' },
-    { id:'qz-9', material_id:'mat-4', guru_id:'guru-1', created_at: iso(9), question:'Jika resultan gaya = 0, benda…', question_image:'', options:['Pasti berhenti','Dipercepat','Tetap diam atau GLB','Berubah arah'], option_images:['','','',''], correct_option:2, explanation:'Hukum I Newton (kelembaman).' },
-    { id:'qz-10', material_id:'mat-5', guru_id:'guru-2', created_at: iso(7), question:'She ___ to school every day.', question_image:'', options:['go','goes','going','gone'], option_images:['','','',''], correct_option:1, explanation:'Subjek "She" → verb + s/es.' },
-    { id:'qz-11', material_id:'mat-5', guru_id:'guru-2', created_at: iso(7), question:'Negatif dari "He plays football"…', question_image:'', options:["He don't play football","He doesn't play football","He not play football","He no play football"], option_images:['','','',''], correct_option:1, explanation:'Orang ke-3 tunggal → does not + V1.' },
-    { id:'qz-12', material_id:'mat-5', guru_id:'guru-2', created_at: iso(7), question:'Keterangan waktu yang TIDAK cocok dengan Simple Present…', question_image:'', options:['every day','usually','yesterday','sometimes'], option_images:['','','',''], correct_option:2, explanation:'"Yesterday" itu past tense.' },
-    { id:'qz-13', material_id:'mat-2', guru_id:'guru-1', created_at: iso(14), question:'Gradien garis melalui (1,2) & (3,8)…', question_image:'', options:['2','3','4','6'], option_images:['','','',''], correct_option:1, explanation:'m = (8-2)/(3-1) = 3.' },
-    { id:'qz-14', material_id:'mat-2', guru_id:'guru-1', created_at: iso(14), question:'Bentuk umum fungsi linear…', question_image:'', options:['y = ax² + bx + c','y = mx + c','y = a/x','y = x³'], option_images:['','','',''], correct_option:1, explanation:'Fungsi linear selalu y = mx + c.' },
-    { id:'qz-15', material_id:'mat-2', guru_id:'guru-1', created_at: iso(14), question:'Jika m = 0, grafik fungsi linear…', question_image:'', options:['Naik','Turun','Horizontal','Vertikal'], option_images:['','','',''], correct_option:2, explanation:'m = 0 → horizontal.' },
-    { id:'qz-16', material_id:'mat-6', guru_id:'guru-2', created_at: iso(4), question:'Teknik baca cepat cari info tertentu…', question_image:'', options:['Skimming','Scanning','Intensive reading','Extensive reading'], option_images:['','','',''], correct_option:1, explanation:'Scanning = cari info spesifik.' },
-    { id:'qz-17', material_id:'mat-6', guru_id:'guru-2', created_at: iso(4), question:'"What is the main idea?" termasuk pertanyaan…', question_image:'', options:['Detail','Vocabulary','Main idea','Inference'], option_images:['','','',''], correct_option:2, explanation:'Menanyakan gagasan utama.' },
-    { id:'qz-18', material_id:'mat-6', guru_id:'guru-2', created_at: iso(4), question:'Strategi membaca untuk kesenangan…', question_image:'', options:['Skimming','Scanning','Intensive','Extensive'], option_images:['','','',''], correct_option:3, explanation:'Extensive reading = santai.' }
+    { id:'qz-1', material_id:'mat-1', guru_id:'guru-1', created_at: iso(16), type: 'pg', question:'Bentuk umum persamaan kuadrat adalah…', question_image:'', options:['ax + b = 0','ax² + bx + c = 0','ax³ + bx² + cx + d = 0','y = mx + c'], option_images:['','','',''], correct_option:1, explanation:'Persamaan kuadrat selalu berderajat dua.' },
+    { id:'qz-2', material_id:'mat-1', guru_id:'guru-1', created_at: iso(16), type: 'essay', question:'Jelaskan apa itu diskriminan dan sebutkan 3 jenis akar berdasarkan diskriminan!', question_image:'', options:[], option_images:[], correct_option:-1, explanation:'Diskriminan adalah D = b²-4ac. Jika D>0 akar real berbeda, D=0 akar kembar, D<0 tidak ada akar real.' }
   ];
 
   const submissions = [];
-  const siswaIds = ['siswa-1','siswa-2','siswa-3','siswa-4','siswa-5'];
-  const quizByMat = { 'mat-1':['qz-1','qz-2','qz-3'], 'mat-3':['qz-4','qz-5','qz-6'], 'mat-4':['qz-7','qz-8','qz-9'], 'mat-5':['qz-10','qz-11','qz-12'] };
-  const matKeys = Object.keys(quizByMat);
-
-  for (let i = 0; i < 25; i++) {
-    const siswa = siswaIds[Math.floor(Math.random()*siswaIds.length)];
-    const matId = matKeys[Math.floor(Math.random()*matKeys.length)];
-    const qzId = quizByMat[matId][Math.floor(Math.random()*3)];
-    const qz = quizzes.find(q => q.id === qzId);
-    if (!qz) continue;
-    const ans = Math.floor(Math.random()*4);
-    submissions.push({
-      id: 'sub-' + Math.random().toString(36).slice(2,9),
-      quiz_id: qzId, siswa_id: siswa,
-      student_answer: ans, is_correct: ans === qz.correct_option,
-      created_at: new Date(now - Math.floor(Math.random()*3*day)).toISOString()
-    });
-  }
-  submissions.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 
   return { profiles, classes, class_members, materials, quizzes, quiz_submissions: submissions };
 }
@@ -514,10 +201,15 @@ function app() {
     viewingMaterial: null,
     selectedMaterialId: null,
     editingQuizId: null,
+    editingMaterialId: null, // FITUR BARU: Edit Materi
+
     newClass: { title:'' },
     joinCode: '',
     newMaterial: { class_id:'', title:'', content:'' },
+    
+    // Form Soal mendukung PG & Esai
     newQuiz: {
+      type: 'pg', // 'pg' atau 'essay'
       question: '',
       question_image: '',
       options: ['','','',''],
@@ -525,6 +217,7 @@ function app() {
       correct_option: 0,
       explanation: ''
     },
+
     aiQuiz: { topic:'', count:3, loading:false },
     aiMaterial: { topic:'', loading:false },
 
@@ -534,11 +227,13 @@ function app() {
     excelFileName: '',
 
     quizAnswers: {},
+    essayAnswers: {}, // FITUR BARU: Jawaban Esai
     quizSubmitted: false,
     quizResults: null,
     score: 0,
     mySubs: [],
     submitting: false,
+    uploadingMaterialImage: false, // FITUR BARU: Upload Gambar Materi
 
     classes: [],
     membersByClass: {},
@@ -632,22 +327,8 @@ function app() {
       this.theme = this.theme === 'dark' ? 'light' : 'dark';
       try { localStorage.setItem('ll_theme', this.theme); } catch(e){}
       this.applyTheme();
-      if (this.mode === 'cloud' && this.cloudSession && this.sb) {
-        try {
-          this.sb.from('user_settings').upsert({
-            user_id: this.cloudSession.user.id,
-            theme: this.theme,
-            ai_provider: this.cfg.aiProvider,
-            ai_model: this.cfg.aiModel,
-            updated_at: new Date().toISOString()
-          }).then(()=>{});
-        } catch(e){}
-      }
     },
 
-    /* ═══════════════════════════════════════════════════════
-       MODE SWITCH
-       ═══════════════════════════════════════════════════════ */
     switchMode(m) {
       if (this.mode === m) return;
       if (m === 'cloud' && this.configHardcoded) {
@@ -658,7 +339,6 @@ function app() {
       this.mode = m;
       try { localStorage.setItem('ll_mode', m); } catch(e){}
       this.authError = '';
-
       if (m === 'cloud') {
         if (!this.cfg.supabaseUrl || !this.cfg.supabaseKey) {
           this.configOpen = true;
@@ -671,9 +351,6 @@ function app() {
       }
     },
 
-    /* ═══════════════════════════════════════════════════════
-       DEMO MODE
-       ═══════════════════════════════════════════════════════ */
     loadDemoDb() {
       try {
         const raw = localStorage.getItem('ll_demo_db');
@@ -715,7 +392,7 @@ function app() {
         this.toast('Selamat datang, ' + prof.name + '!', 'success');
         this.$nextTick(() => {
           this.icons();
-          if (prof.role === 'guru') { this.loadGuruData(); this.startSimulation(); }
+          if (prof.role === 'guru') { this.loadGuruData(); }
           else this.loadSiswaData();
         });
       } catch (e) { this.toast('Login gagal: ' + e.message, 'error'); }
@@ -723,7 +400,6 @@ function app() {
     demoLogout() {
       this.demoSession = null;
       try { localStorage.removeItem('ll_demo_session'); } catch(e){}
-      this.stopSimulation();
       this.tab = 'classes';
     },
     resetDemoData() {
@@ -768,9 +444,6 @@ function app() {
               try {
                 localStorage.setItem('ll_sb_url', json.supabaseUrl);
                 localStorage.setItem('ll_sb_key', json.supabaseKey);
-                if (json.aiKey) localStorage.setItem('ll_ai_key', json.aiKey);
-                if (json.aiProvider) localStorage.setItem('ll_ai_provider', json.aiProvider);
-                if (json.aiModel) localStorage.setItem('ll_ai_model', json.aiModel);
               } catch(e){}
               this.cfgDraft = { ...this.cfg };
               this.toast('Konfigurasi dimuat dari link.', 'success');
@@ -779,24 +452,9 @@ function app() {
           } catch(e) { this.toast('Link config tidak valid.', 'error'); }
           try { history.replaceState(null, '', window.location.pathname); } catch(e){}
         }
-        const mDemo = hash.match(/demo-login=([^&]+)/);
-        if (mDemo) {
-          try {
-            const payload = JSON.parse(atob(mDemo[1]));
-            if (payload.mode === 'demo') {
-              this.mode = 'demo';
-              try { localStorage.setItem('ll_mode', 'demo'); } catch(e){}
-              this.$nextTick(() => this.demoLogin(payload.email));
-            }
-          } catch(e){}
-          try { history.replaceState(null, '', window.location.pathname); } catch(e){}
-        }
       } catch(e) { console.warn('checkUrlConfig:', e); }
     },
 
-    /* ═══════════════════════════════════════════════════════
-       CLOUD MODE
-       ═══════════════════════════════════════════════════════ */
     initCloud() {
       if (typeof supabase === 'undefined') {
         this.toast('Library Supabase gagal dimuat.', 'error');
@@ -843,15 +501,6 @@ function app() {
         }
         this._cloudProfile = data;
         this.booting = false;
-
-        try {
-          const { data: st } = await this.sb.from('user_settings').select('*').eq('user_id', uid).maybeSingle();
-          if (st) {
-            if (st.theme && st.theme !== this.theme) { this.theme = st.theme; this.applyTheme(); }
-            if (st.ai_provider) this.cfg.aiProvider = st.ai_provider;
-            if (st.ai_model) this.cfg.aiModel = st.ai_model;
-          }
-        } catch(e){}
 
         this.$nextTick(() => {
           this.icons();
@@ -900,9 +549,6 @@ function app() {
       else this.cloudLogout();
     },
 
-    /* ═══════════════════════════════════════════════════════
-       CONFIG
-       ═══════════════════════════════════════════════════════ */
     openConfig() {
       this.cfgDraft = { ...this.cfg };
       this.configOpen = true;
@@ -915,7 +561,6 @@ function app() {
       localStorage.setItem('ll_ai_key', (this.cfgDraft.aiKey || '').trim());
       localStorage.setItem('ll_ai_model', (this.cfgDraft.aiModel || '').trim());
     } catch(e){}
-    // Update config runtime (AI-only)
     this.cfg.aiProvider = this.cfgDraft.aiProvider;
     this.cfg.aiKey = this.cfgDraft.aiKey;
     this.cfg.aiModel = this.cfgDraft.aiModel;
@@ -923,11 +568,7 @@ function app() {
     this.toast('AI Key tersimpan. Supabase tetap pakai hardcode.', 'success');
     return;
   }
-
-  // Kalau TIDAK hardcode: simpan semuanya seperti biasa
-  if (!this.cfgDraft.supabaseUrl || !this.cfgDraft.supabaseKey) {
-    return this.toast('URL & Anon Key wajib diisi.', 'error');
-  }
+  if (!this.cfgDraft.supabaseUrl || !this.cfgDraft.supabaseKey) return this.toast('URL & Anon Key wajib diisi.', 'error');
   try {
     localStorage.setItem('ll_sb_url', this.cfgDraft.supabaseUrl.trim());
     localStorage.setItem('ll_sb_key', this.cfgDraft.supabaseKey.trim());
@@ -940,50 +581,6 @@ function app() {
   this.toast('Konfigurasi tersimpan.', 'success');
   if (this.mode === 'cloud') { this.booting = true; this.initCloud(); }
 },
-    exportConfig() {
-      try {
-        const data = JSON.stringify({
-          supabaseUrl: this.cfg.supabaseUrl, supabaseKey: this.cfg.supabaseKey,
-          aiProvider: this.cfg.aiProvider, aiKey: this.cfg.aiKey, aiModel: this.cfg.aiModel,
-          exportedAt: new Date().toISOString()
-        }, null, 2);
-        const blob = new Blob([data], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'livelearn-config.json'; a.click();
-        URL.revokeObjectURL(url);
-        this.toast('Config diexport.', 'success');
-      } catch(e) { this.toast('Export gagal: ' + e.message, 'error'); }
-    },
-    importConfig(ev) {
-      const file = ev.target.files?.[0];
-      if (!file) return;
-      const r = new FileReader();
-      r.onload = (e) => {
-        try {
-          const j = JSON.parse(e.target.result);
-          this.cfgDraft = { ...this.cfgDraft, ...j };
-          this.toast('Config dimuat. Klik "Simpan".', 'success');
-        } catch { this.toast('File tidak valid.', 'error'); }
-      };
-      r.readAsText(file);
-    },
-    shareConfigLink() {
-      if (!this.cfg.supabaseUrl || !this.cfg.supabaseKey) return this.toast('Isi config dulu.', 'error');
-      try {
-        const payload = btoa(unescape(encodeURIComponent(JSON.stringify({
-          supabaseUrl: this.cfg.supabaseUrl, supabaseKey: this.cfg.supabaseKey,
-          aiProvider: this.cfg.aiProvider, aiKey: this.cfg.aiKey, aiModel: this.cfg.aiModel
-        }))));
-        const origin = window.location.origin;
-        const base = (origin && origin !== 'null' && origin !== 'file://') ? origin + window.location.pathname : window.location.href.split('#')[0];
-        const link = base + '#cfg=' + payload;
-        navigator.clipboard.writeText(link)
-          .then(() => this.toast('Link config disalin!', 'success'))
-          .catch(() => this.toast('Salin manual dari address bar.', 'info'));
-        try { window.location.hash = 'cfg=' + payload; } catch(e){}
-      } catch(e) { this.toast('Share gagal: ' + e.message, 'error'); }
-    },
     resetAllConfig() {
       if (!confirm('Reset semua konfigurasi & logout?')) return;
       try {
@@ -992,9 +589,6 @@ function app() {
       location.reload();
     },
 
-    /* ═══════════════════════════════════════════════════════
-       IMAGE UPLOAD
-       ═══════════════════════════════════════════════════════ */
     _fileToBase64(file) {
       return new Promise((resolve, reject) => {
         const r = new FileReader();
@@ -1015,6 +609,20 @@ function app() {
       const { data: { publicUrl } } = this.sb.storage.from(bucket).getPublicUrl(path);
       return publicUrl;
     },
+    
+    async handleMaterialImageUpload(ev) {
+      const file = ev.target.files?.[0];
+      if (!file) return;
+      this.uploadingMaterialImage = true;
+      try {
+        const url = await this.uploadImage(file);
+        // Sisipkan format markdown gambar ke dalam teks materi
+        this.newMaterial.content += `\n\n![Gambar Materi](${url})\n\n`;
+        this.toast('Gambar disisipkan ke materi.', 'success');
+      } catch (e) { this.toast('Upload gagal: ' + e.message, 'error'); }
+      finally { this.uploadingMaterialImage = false; ev.target.value = ''; }
+    },
+
     async handleQuestionImageUpload(ev) {
       const file = ev.target.files?.[0];
       if (!file) return;
@@ -1031,55 +639,22 @@ function app() {
       this.uploadingImage = true;
       try {
         this.newQuiz.option_images[index] = await this.uploadImage(file);
-        this.toast('Gambar opsi ' + String.fromCharCode(65 + index) + ' diupload.', 'success');
+        this.toast('Gambar opsi diupload.', 'success');
       } catch (e) { this.toast('Upload gagal: ' + e.message, 'error'); }
       finally { this.uploadingImage = false; ev.target.value = ''; }
     },
     removeQuestionImage() { this.newQuiz.question_image = ''; },
     removeOptionImage(i) { this.newQuiz.option_images[i] = ''; },
 
-    /* ═══════════════════════════════════════════════════════
-       EXCEL TEMPLATE & IMPORT
-       ═══════════════════════════════════════════════════════ */
     downloadExcelTemplate() {
       if (typeof XLSX === 'undefined') return this.toast('Library Excel belum dimuat.', 'error');
       const ws_data = [
         ['pertanyaan','gambar_pertanyaan','opsi_a','gambar_a','opsi_b','gambar_b','opsi_c','gambar_c','opsi_d','gambar_d','jawaban','penjelasan'],
-        ['Berapa hasil dari 2 + 2?','','3','','4','','5','','6','','B','Hasil penjumlahan 2 + 2 adalah 4.'],
-        ['Berdasarkan gambar peta, kota manakah ibu kota Indonesia?',
-         'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Indonesia_map.png/640px-Indonesia_map.png',
-         'Bandung','','Jakarta','','Surabaya','','Medan','','B','Jakarta adalah ibu kota Indonesia.'],
-        ['Manakah bentuk bangun datar persegi?','',
-         'Persegi','https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Square_-_black_simple.svg/120px-Square_-_black_simple.svg.png',
-         'Segitiga','https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Triangle_illustration.svg/120px-Triangle_illustration.svg.png',
-         'Lingkaran','','Trapesium','','A','Persegi memiliki 4 sisi sama panjang.']
+        ['Berapa hasil dari 2 + 2?','','3','','4','','5','','6','','B','Hasil penjumlahan 2 + 2 adalah 4.']
       ];
       const ws = XLSX.utils.aoa_to_sheet(ws_data);
-      ws['!cols'] = [
-        {wch:45},{wch:50},{wch:20},{wch:45},{wch:20},{wch:45},{wch:20},{wch:45},{wch:20},{wch:45},{wch:10},{wch:45}
-      ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Soal');
-
-      const wsInfo = XLSX.utils.aoa_to_sheet([
-        ['PETUNJUK PENGISIAN TEMPLATE SOAL'],
-        [''],
-        ['Kolom','Keterangan'],
-        ['pertanyaan','WAJIB. Teks pertanyaan.'],
-        ['gambar_pertanyaan','OPSIONAL. URL gambar pertanyaan.'],
-        ['opsi_a ... opsi_d','WAJIB minimal 2 opsi (A & B). Boleh sampai opsi E.'],
-        ['gambar_a ... gambar_d','OPSIONAL. URL gambar tiap opsi.'],
-        ['jawaban','WAJIB. Huruf A/B/C/D/E sesuai opsi yang benar.'],
-        ['penjelasan','WAJIB. Penjelasan jawaban.'],
-        [''],
-        ['TIPS GAMBAR:'],
-        ['- Isi kolom gambar dengan URL publik (Imgur, Google Drive direct, Supabase Storage).'],
-        ['- Link Google Drive harus format: https://drive.google.com/uc?id=FILE_ID'],
-        ['- Kosongkan kalau tidak perlu gambar.']
-      ]);
-      wsInfo['!cols'] = [{wch:25},{wch:90}];
-      XLSX.utils.book_append_sheet(wb, wsInfo, 'Petunjuk');
-
       XLSX.writeFile(wb, 'template-soal-livelearn.xlsx');
       this.toast('Template Excel didownload.', 'success');
     },
@@ -1113,6 +688,7 @@ function app() {
             const idx = letters.indexOf(jawab.toLowerCase());
             if (idx >= 0 && idx < options.length) correct_option = idx;
             parsed.push({
+              type: 'pg',
               question: pertanyaan,
               question_image: r['gambar_pertanyaan'] || '',
               options, option_images, correct_option,
@@ -1123,9 +699,7 @@ function app() {
           }
           this.excelPreview = parsed;
           this.excelImportOpen = true;
-          if (!parsed.length) this.toast('Tidak ada baris valid.', 'error');
         } catch (err) {
-          console.error(err);
           this.toast('Gagal parse Excel: ' + err.message, 'error');
         } finally { ev.target.value = ''; }
       };
@@ -1142,6 +716,7 @@ function app() {
           await this.dbInsert('quizzes', {
             material_id: this.selectedMaterialId,
             guru_id: this.profile.id,
+            type: 'pg',
             question: row.question,
             question_image: row.question_image || null,
             options: row.options,
@@ -1165,9 +740,6 @@ function app() {
       this.excelFileName = '';
     },
 
-    /* ═══════════════════════════════════════════════════════
-       DB ABSTRACTION
-       ═══════════════════════════════════════════════════════ */
     async dbInsert(table, record) {
       if (this.mode === 'demo') {
         const rec = {
@@ -1221,9 +793,6 @@ function app() {
       if (error) throw error;
     },
 
-    /* ═══════════════════════════════════════════════════════
-       DATA FETCH
-       ═══════════════════════════════════════════════════════ */
     async fetchClassesForGuru() {
       if (this.mode === 'demo') return (this.demoData?.classes || []).filter(c => c.guru_id === this.profile?.id).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
       const { data, error } = await this.sb.from('classes').select('*').eq('guru_id', this.profile.id).order('created_at', { ascending:false });
@@ -1246,7 +815,7 @@ function app() {
       if (this.mode === 'demo') {
         const myClassIds = (this.demoData?.class_members || []).filter(m => m.siswa_id === this.profile?.id).map(m => m.class_id);
         return (this.demoData?.materials || [])
-          .filter(m => m.is_active && myClassIds.includes(m.class_id))
+          .filter(m => myClassIds.includes(m.class_id)) // Ambil semua, nanti dicek is_active-nya di UI
           .map(m => {
             const c = (this.demoData?.classes || []).find(x => x.id === m.class_id);
             const g = (this.demoData?.profiles || []).find(p => p.id === c?.guru_id);
@@ -1256,7 +825,7 @@ function app() {
       }
       const { data, error } = await this.sb.from('materials')
         .select('*, classes:class_id(title, class_code, profiles:guru_id(name))')
-        .eq('is_active', true).order('created_at', { ascending: false });
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data || [];
     },
@@ -1307,7 +876,7 @@ function app() {
       const ids = (myQz||[]).map(q => q.id);
       if (!ids.length) return [];
       const { data, error } = await this.sb.from('quiz_submissions')
-        .select('*, profiles:siswa_id(name), quizzes:quiz_id(question, material_id, materials:material_id(title, class_id, classes:class_id(title)))')
+        .select('*, profiles:siswa_id(name), quizzes:quiz_id(question, material_id, type, materials:material_id(title, class_id, classes:class_id(title)))')
         .in('quiz_id', ids).order('created_at', { ascending: false }).limit(300);
       if (error) throw error;
       return data || [];
@@ -1318,25 +887,7 @@ function app() {
       if (error) throw error;
       return data || [];
     },
-    async insertSubmissions(rows) {
-      if (this.mode === 'demo') {
-        if (!this.demoData.quiz_submissions) this.demoData.quiz_submissions = [];
-        for (const r of rows) {
-          this.demoData.quiz_submissions.push({
-            ...r, id: 'sub-' + Math.random().toString(36).slice(2,9),
-            created_at: new Date().toISOString()
-          });
-        }
-        this.saveDemoDb();
-        return;
-      }
-      const { error } = await this.sb.from('quiz_submissions').insert(rows);
-      if (error) throw error;
-    },
 
-    /* ═══════════════════════════════════════════════════════
-       LOAD VIEW DATA
-       ═══════════════════════════════════════════════════════ */
     async loadGuruData() {
       try {
         this.classes = await this.fetchClassesForGuru();
@@ -1358,9 +909,6 @@ function app() {
     membersOf(classId) { return this.membersByClass[classId] || []; },
     classTitleById(id) { return this.classes.find(c => c.id === id)?.title || '—'; },
 
-    /* ═══════════════════════════════════════════════════════
-       GURU: CLASSES
-       ═══════════════════════════════════════════════════════ */
     genCode() {
       const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       let s = ''; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random()*c.length)];
@@ -1370,16 +918,6 @@ function app() {
       if (!this.newClass.title.trim()) return this.toast('Judul kelas wajib diisi.', 'error');
       try {
         let code = this.genCode();
-        for (let i = 0; i < 5; i++) {
-          let exist = false;
-          if (this.mode === 'demo') exist = (this.demoData?.classes || []).some(c => c.class_code === code);
-          else {
-            const { data } = await this.sb.from('classes').select('id').eq('class_code', code).maybeSingle();
-            exist = !!data;
-          }
-          if (!exist) break;
-          code = this.genCode();
-        }
         await this.dbInsert('classes', { guru_id: this.profile.id, siswa_id: null, class_code: code, title: this.newClass.title.trim() });
         this.newClass.title = '';
         this.toast('Kelas dibuat. Kode: ' + code, 'success');
@@ -1397,83 +935,92 @@ function app() {
         .catch(() => this.toast('Gagal menyalin.', 'error'));
     },
 
-    /* ═══════════════════════════════════════════════════════
-       GURU: MATERIALS
-       ═══════════════════════════════════════════════════════ */
     handleMaterialUpload(ev) {
       const file = ev.target.files?.[0];
       if (!file) return;
 
-      // Jika yang diupload adalah PDF
       if (file.type === 'application/pdf') {
         if (typeof pdfjsLib === 'undefined') {
-          this.toast('Library PDF belum termuat. Coba refresh halaman.', 'error');
+          this.toast('Library PDF belum termuat.', 'error');
           return;
         }
         this.toast('Mengekstrak teks dari PDF...', 'info');
-        
         const reader = new FileReader();
         reader.onload = async (e) => {
           try {
             const typedarray = new Uint8Array(e.target.result);
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
             let fullText = '';
-
-            // Looping semua halaman PDF
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i);
               const textContent = await page.getTextContent();
               const pageText = textContent.items.map(item => item.str).join(' ');
               fullText += pageText + '\n\n';
             }
-
             this.newMaterial.content = fullText.trim();
-            if (!this.newMaterial.title.trim()) {
-              this.newMaterial.title = file.name.replace(/\.[^/.]+$/, "");
-            }
+            if (!this.newMaterial.title.trim()) this.newMaterial.title = file.name.replace(/\.[^/.]+$/, "");
             this.toast('Teks PDF berhasil dimuat.', 'success');
           } catch (err) {
             this.toast('Gagal membaca PDF: ' + err.message, 'error');
           }
         };
         reader.readAsArrayBuffer(file);
-      } 
-      // Jika yang diupload adalah TXT atau MD
-      else {
+      } else {
         const reader = new FileReader();
         reader.onload = (e) => {
           try {
             this.newMaterial.content = e.target.result;
-            if (!this.newMaterial.title.trim()) {
-              this.newMaterial.title = file.name.replace(/\.[^/.]+$/, "");
-            }
+            if (!this.newMaterial.title.trim()) this.newMaterial.title = file.name.replace(/\.[^/.]+$/, "");
             this.toast('File materi berhasil dimuat.', 'success');
-          } catch (err) {
-            this.toast('Gagal membaca file: ' + err.message, 'error');
-          }
+          } catch (err) { this.toast('Gagal membaca file: ' + err.message, 'error'); }
         };
         reader.readAsText(file);
       }
-      
-      ev.target.value = ''; // Reset input agar bisa upload file yang sama
+      ev.target.value = '';
     },
+    
+    // FITUR BARU: Edit Materi
+    editMaterial(m) {
+      this.editingMaterialId = m.id;
+      this.newMaterial = { class_id: m.class_id, title: m.title, content: m.content };
+      setTimeout(() => {
+        const formEl = document.getElementById('material-form');
+        if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    },
+    cancelEditMaterial() {
+      this.editingMaterialId = null;
+      this.newMaterial = { class_id: '', title: '', content: '' };
+    },
+
     async createMaterial() {
       const f = this.newMaterial;
       if (!f.class_id) return this.toast('Pilih kelas.', 'error');
       if (!f.title.trim() || !f.content.trim()) return this.toast('Judul & konten wajib diisi.', 'error');
       try {
-        await this.dbInsert('materials', {
-          guru_id: this.profile.id, class_id: f.class_id,
-          title: f.title.trim(), content: f.content.trim(), is_active: false
-        });
+        if (this.editingMaterialId) {
+          await this.dbUpdate('materials', this.editingMaterialId, {
+            title: f.title.trim(), content: f.content.trim()
+          });
+          this.toast('Materi diupdate.', 'success');
+          this.editingMaterialId = null;
+        } else {
+          await this.dbInsert('materials', {
+            guru_id: this.profile.id, class_id: f.class_id,
+            title: f.title.trim(), content: f.content.trim(), is_active: false
+          });
+          this.toast('Materi ditambahkan.', 'success');
+        }
         this.newMaterial = { class_id: f.class_id, title:'', content:'' };
         await this.loadGuruData();
-        this.toast('Materi ditambahkan.', 'success');
       } catch (e) { this.toast(e.message, 'error'); }
     },
     async toggleMaterialActive(m) {
-      try { await this.dbUpdate('materials', m.id, { is_active: !m.is_active }); await this.loadGuruData(); }
-      catch (e) { this.toast(e.message, 'error'); }
+      try { 
+        await this.dbUpdate('materials', m.id, { is_active: !m.is_active }); 
+        await this.loadGuruData(); 
+        this.toast(m.is_active ? 'Materi Dikunci (Siswa tidak bisa buka).' : 'Materi Dibuka (Siswa bisa buka).', 'info');
+      } catch (e) { this.toast(e.message, 'error'); }
     },
     async deleteMaterial(id) {
       if (!confirm('Hapus materi beserta soal?')) return;
@@ -1486,9 +1033,6 @@ function app() {
       this.$nextTick(() => this.icons());
     },
 
-    /* ═══════════════════════════════════════════════════════
-       GURU: QUIZZES
-       ═══════════════════════════════════════════════════════ */
     addOption() {
       if (this.newQuiz.options.length < 6) {
         this.newQuiz.options.push('');
@@ -1501,51 +1045,54 @@ function app() {
       this.newQuiz.option_images.splice(i, 1);
       if (this.newQuiz.correct_option >= this.newQuiz.options.length) this.newQuiz.correct_option = 0;
     },
+    
     async createQuiz() {
       if (!this.selectedMaterialId) return this.toast('Pilih materi dulu.', 'error');
       const q = this.newQuiz;
-      const opts = q.options.map(o => o.trim()).filter(Boolean);
       if (!q.question.trim()) return this.toast('Pertanyaan wajib diisi.', 'error');
-      if (opts.length < 2) return this.toast('Minimal 2 opsi.', 'error');
-      if (q.correct_option >= opts.length) return this.toast('Jawaban benar tidak valid.', 'error');
       if (!q.explanation.trim()) return this.toast('Penjelasan wajib diisi.', 'error');
 
-      const alignedImages = [];
-      for (let i = 0; i < q.options.length; i++) {
-        if (q.options[i].trim()) alignedImages.push(q.option_images[i] || '');
+      let opts = [], alignedImages = [], correctIdx = 0;
+      if (q.type === 'pg') {
+        opts = q.options.map(o => o.trim()).filter(Boolean);
+        if (opts.length < 2) return this.toast('Minimal 2 opsi.', 'error');
+        if (q.correct_option >= opts.length) return this.toast('Jawaban benar tidak valid.', 'error');
+        correctIdx = q.correct_option;
+        for (let i = 0; i < q.options.length; i++) {
+          if (q.options[i].trim()) alignedImages.push(q.option_images[i] || '');
+        }
       }
 
       try {
         if (this.editingQuizId) {
-          // MODE EDIT: Update data yang sudah ada
           await this.dbUpdate('quizzes', this.editingQuizId, {
+            type: q.type,
             question: q.question.trim(),
             question_image: q.question_image || null,
             options: opts,
             option_images: alignedImages,
-            correct_option: q.correct_option,
+            correct_option: q.type === 'essay' ? -1 : correctIdx,
             explanation: q.explanation.trim()
           });
           this.toast('Soal berhasil diupdate.', 'success');
-          this.editingQuizId = null; // Matikan mode edit
+          this.editingQuizId = null;
         } else {
-          // MODE TAMBAH: Buat data baru
           await this.dbInsert('quizzes', {
             material_id: this.selectedMaterialId,
             guru_id: this.profile.id,
+            type: q.type,
             question: q.question.trim(),
             question_image: q.question_image || null,
             options: opts,
             option_images: alignedImages,
-            correct_option: q.correct_option,
+            correct_option: q.type === 'essay' ? -1 : correctIdx,
             explanation: q.explanation.trim()
           });
           this.toast('Soal ditambahkan.', 'success');
         }
 
-        // Reset form
         this.newQuiz = {
-          question: '', question_image: '',
+          type: 'pg', question: '', question_image: '',
           options: ['','','',''], option_images: ['','','',''],
           correct_option: 0, explanation: ''
         };
@@ -1554,16 +1101,15 @@ function app() {
     },
     editQuiz(q) {
       this.editingQuizId = q.id;
-      // Masukkan data soal yang dipilih ke dalam form input
       this.newQuiz = {
+        type: q.type || 'pg',
         question: q.question,
         question_image: q.question_image || '',
-        options: [...q.options], // Copy array opsi
-        option_images: q.option_images ? [...q.option_images] : q.options.map(() => ''),
+        options: q.options.length ? [...q.options] : ['','','',''],
+        option_images: q.option_images ? [...q.option_images] : ['','','',''],
         correct_option: q.correct_option,
         explanation: q.explanation
       };
-      // Scroll ke form input (opsional, biar user sadar formnya berubah)
       setTimeout(() => {
         const formEl = document.getElementById('quiz-form');
         if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1571,9 +1117,8 @@ function app() {
     },
     cancelEditQuiz() {
       this.editingQuizId = null;
-      // Kosongkan form kembali seperti semula
       this.newQuiz = {
-        question: '', question_image: '',
+        type: 'pg', question: '', question_image: '',
         options: ['','','',''], option_images: ['','','',''],
         correct_option: 0, explanation: ''
       };
@@ -1582,50 +1127,6 @@ function app() {
       if (!confirm('Hapus soal ini?')) return;
       try { await this.dbDelete('quizzes', id); this.quizzes = await this.fetchQuizzesForMaterial(this.selectedMaterialId); }
       catch (e) { this.toast(e.message, 'error'); }
-    },
-
-    /* ═══════════════════════════════════════════════════════
-       LIVE SIMULATOR
-       ═══════════════════════════════════════════════════════ */
-    startSimulation() {
-      if (this.mode !== 'demo' || this.simRunning) return;
-      this.simRunning = true;
-      const tick = () => {
-        try {
-          const allQz = this.demoData?.quizzes || [];
-          const allSiswa = (this.demoData?.profiles || []).filter(p => p.role === 'siswa');
-          if (!allQz.length || !allSiswa.length) return;
-          const qz = allQz[Math.floor(Math.random()*allQz.length)];
-          const siswa = allSiswa[Math.floor(Math.random()*allSiswa.length)];
-          const ans = Math.floor(Math.random()*4);
-          const sub = {
-            id: 'sub-' + Math.random().toString(36).slice(2,9),
-            quiz_id: qz.id, siswa_id: siswa.id,
-            student_answer: ans, is_correct: ans === qz.correct_option,
-            created_at: new Date().toISOString()
-          };
-          if (!this.demoData.quiz_submissions) this.demoData.quiz_submissions = [];
-          this.demoData.quiz_submissions.unshift(sub);
-          this.saveDemoDb();
-          const m = (this.demoData.materials || []).find(x => x.id === qz.material_id);
-          const c = (this.demoData.classes || []).find(x => x.id === m?.class_id);
-          this.submissions.unshift({
-            ...sub, profiles: siswa,
-            quizzes: { ...qz, materials: { ...(m||{}), classes: c } }
-          });
-          this.submissions = this.submissions.slice(0, 300);
-        } catch(e) { console.warn('sim:', e); }
-      };
-      this.simTimer = setInterval(tick, 9000);
-      setTimeout(tick, 2500);
-    },
-    stopSimulation() {
-      if (this.simTimer) { clearInterval(this.simTimer); this.simTimer = null; }
-      this.simRunning = false;
-    },
-    toggleSimulation() {
-      if (this.simRunning) { this.stopSimulation(); this.toast('Simulasi dihentikan.', 'info'); }
-      else { this.startSimulation(); this.toast('Simulasi dimulai.', 'success'); }
     },
 
     /* ═══════════════════════════════════════════════════════
@@ -1659,9 +1160,12 @@ function app() {
         await this.loadSiswaData();
       } catch (e) { this.toast(e.message, 'error'); }
     },
+    
     async openMaterial(m) {
+      if (m.is_active === false) return this.toast('Materi ini masih terkunci oleh guru.', 'error');
       this.viewingMaterial = m;
       this.quizAnswers = {};
+      this.essayAnswers = {};
       this.quizSubmitted = false;
       this.quizResults = null;
       this.score = 0;
@@ -1673,290 +1177,170 @@ function app() {
       } catch (e) { this.toast(e.message, 'error'); }
     },
     closeMaterial() {
-      this.viewingMaterial = null; this.quizzes = []; this.quizAnswers = {};
+      this.viewingMaterial = null; this.quizzes = []; this.quizAnswers = {}; this.essayAnswers = {};
       this.quizResults = null; this.mySubs = []; this.quizSubmitted = false;
     },
+    
+    // FITUR BARU: LIVE SUBMIT (KIRIM PER SOAL)
+    async liveSubmitPg(quizId, answerIdx) {
+      if (this.quizSubmitted) return;
+      const q = this.quizzes.find(x => x.id === quizId);
+      try {
+        const row = {
+          quiz_id: quizId, 
+          siswa_id: this.profile.id,
+          student_answer: answerIdx,
+          is_correct: answerIdx === q.correct_option
+        };
+        if (this.mode === 'demo') {
+          if (!this.demoData.quiz_submissions) this.demoData.quiz_submissions = [];
+          this.demoData.quiz_submissions = this.demoData.quiz_submissions.filter(s => !(s.quiz_id === quizId && s.siswa_id === this.profile.id));
+          this.demoData.quiz_submissions.push({ ...row, id: 'sub-'+Math.random().toString(36).slice(2,9), created_at: new Date().toISOString() });
+          this.saveDemoDb();
+        } else {
+          await this.sb.from('quiz_submissions').delete().match({ quiz_id: quizId, siswa_id: this.profile.id });
+          await this.sb.from('quiz_submissions').insert(row);
+        }
+      } catch(e) { console.warn('Live submit error', e); }
+    },
+
+    async saveEssay(quizId) {
+      const answer = this.essayAnswers[quizId];
+      if (!answer || !answer.trim()) return this.toast('Jawaban esai tidak boleh kosong.', 'error');
+      try {
+        const row = {
+          quiz_id: quizId, 
+          siswa_id: this.profile.id,
+          student_answer: 0, // Esai tidak pakai index opsi
+          is_correct: false // Akan dinilai manual oleh guru
+        };
+        if (this.mode === 'demo') {
+          if (!this.demoData.quiz_submissions) this.demoData.quiz_submissions = [];
+          this.demoData.quiz_submissions = this.demoData.quiz_submissions.filter(s => !(s.quiz_id === quizId && s.siswa_id === this.profile.id));
+          this.demoData.quiz_submissions.push({ ...row, answer_text: answer, id: 'sub-'+Math.random().toString(36).slice(2,9), created_at: new Date().toISOString() });
+          this.saveDemoDb();
+        } else {
+          await this.sb.from('quiz_submissions').delete().match({ quiz_id: quizId, siswa_id: this.profile.id });
+          // Menggunakan student_answer untuk menampung teks esai (bisa juga buat kolom baru di DB)
+          await this.sb.from('quiz_submissions').insert({ ...row, student_answer: answer }); 
+        }
+        this.toast('Jawaban esai tersimpan.', 'success');
+      } catch(e) { this.toast('Gagal simpan esai: ' + e.message, 'error'); }
+    },
+
     async submitQuiz() {
       if (this.submitting) return;
-      const unanswered = this.quizzes.filter(q => this.quizAnswers[q.id] === undefined || this.quizAnswers[q.id] === null);
-      if (unanswered.length) return this.toast('Masih ada ' + unanswered.length + ' soal belum dijawab.', 'error');
+      // Cek apakah masih ada yang belum dijawab
+      const unansweredPg = this.quizzes.filter(q => q.type === 'pg' && (this.quizAnswers[q.id] === undefined || this.quizAnswers[q.id] === null));
+      if (unansweredPg.length) return this.toast('Masih ada ' + unansweredPg.length + ' soal PG belum dijawab.', 'error');
+      
       this.submitting = true;
       try {
-        const rows = this.quizzes.map(q => ({
-          quiz_id: q.id, siswa_id: this.profile.id,
-          student_answer: this.quizAnswers[q.id],
-          is_correct: this.quizAnswers[q.id] === q.correct_option
-        }));
-        await this.insertSubmissions(rows);
         let correct = 0;
         this.quizResults = this.quizzes.map(q => {
-          const ok = this.quizAnswers[q.id] === q.correct_option;
-          if (ok) correct++;
-          return { quiz: q, answer: this.quizAnswers[q.id], correct: ok };
+          let ok = false;
+          if (q.type === 'pg') {
+            ok = this.quizAnswers[q.id] === q.correct_option;
+            if (ok) correct++;
+          }
+          return { quiz: q, answer: this.quizAnswers[q.id] || this.essayAnswers[q.id], correct: ok };
         });
+        
         this.quizSubmitted = true;
-        this.score = Math.round((correct / this.quizzes.length) * 100);
-        this.toast('Jawaban terkirim! Skor: ' + this.score, 'success');
+        this.score = Math.round((correct / this.quizzes.filter(q=>q.type==='pg').length) * 100);
+        this.toast('Jawaban terkirim! Skor PG: ' + this.score, 'success');
         this.mySubs = await this.fetchMySubmissions(this.quizzes.map(q => q.id));
       } catch (e) { this.toast('Gagal submit: ' + e.message, 'error'); }
       finally { this.submitting = false; }
     },
 
-    /* ═══════════════════════════════════════════════════════
-       AI
-       ═══════════════════════════════════════════════════════ */
-    async callAI(prompt) {
-      if (!this.cfg.aiKey) throw new Error('AI API Key belum diisi.');
+    async printStudentResult() {
+      if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
+      let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
+      html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
+      html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Hasil Tes</div>';
+      html += '<div style="font-size:14px; margin-top:5px;">Nama: <b>' + this.profile.name + '</b> | Kelas: ' + this.viewingMaterial.classes.title + '</div>';
+      html += '<div style="font-size:14px;">Materi: <b>' + this.viewingMaterial.title + '</b> | Skor PG: <b style="color:#ea580c;font-size:18px;">' + this.score + '</b></div>';
+      html += '</div>';
 
-      /* ═══════════════ GOOGLE GEMINI ═══════════════ */
-      if (this.cfg.aiProvider === 'gemini') {
-        const model = this.cfg.aiModel || 'gemini-1.5-flash'; 
-        const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + 
-                    model + ':generateContent?key=' + encodeURIComponent(this.cfg.aiKey);
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j?.error?.message || 'Gemini error');
-        return j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-      }
-
-      /* ═══════════════ GROQ ═══════════════ */
-      const model = this.cfg.aiModel || 'qwen/qwen3.8-27b'; 
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + this.cfg.aiKey
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7
-        })
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.error?.message || 'Groq error');
-      return j?.choices?.[0]?.message?.content || '';
-    },
-    parseAIJSON(text) {
-      let t = (text||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
-      const a = t.indexOf('['), o = t.indexOf('{');
-      let start = -1;
-      if (a === -1) start = o; else if (o === -1) start = a; else start = Math.min(a, o);
-      if (start > 0) t = t.slice(start);
-      try { return JSON.parse(t); }
-      catch {
-        const end = Math.max(t.lastIndexOf(']'), t.lastIndexOf('}'));
-        if (end > 0) return JSON.parse(t.slice(0, end+1));
-        throw new Error('Respons AI bukan JSON valid.');
-      }
-    },
-    async aiGenerateMaterial() {
-      if (!this.aiMaterial.topic.trim()) return this.toast('Isi topik materi.', 'error');
-      this.aiMaterial.loading = true;
-      try {
-        if (this.mode === 'demo' && !this.cfg.aiKey) {
-          await new Promise(r => setTimeout(r, 700));
-          this.newMaterial.content = this._mockMarkdown(this.aiMaterial.topic);
-          this.newMaterial.title = this.newMaterial.title || this.aiMaterial.topic;
-          this.toast('Materi dibuat (Mock Demo).', 'success');
+      for (let i = 0; i < this.quizzes.length; i++) {
+        const q = this.quizzes[i];
+        const userAns = this.quizAnswers[q.id];
+        const userEssay = this.essayAnswers[q.id];
+        const isCorrect = q.type === 'pg' ? (userAns === q.correct_option) : null;
+        
+        html += '<div style="margin-bottom:15px; padding:12px; border:1px solid #cbd5e1; border-radius:8px; background:' + (isCorrect === true ? '#f0fdf4' : isCorrect === false ? '#fef2f2' : '#f8fafc') + '">';
+        html += '<div style="font-weight:bold; margin-bottom:8px;">' + (i+1) + '. ' + q.question + ' <span style="font-size:10px; color:#64748b; font-weight:normal;">(' + (q.type === 'pg' ? 'Pilihan Ganda' : 'Uraian') + ')</span></div>';
+        
+        if (q.type === 'pg') {
+          html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <b>' + (userAns !== undefined ? q.options[userAns] : 'Tidak dijawab') + '</b></div>';
+          if (!isCorrect) html += '<div style="font-size:12px; color:#059669;">Jawaban Benar: <b>' + q.options[q.correct_option] + '</b></div>';
         } else {
-          const prompt = 'Buatkan materi pembelajaran lengkap dalam Bahasa Indonesia dalam format Markdown tentang topik: "' + this.aiMaterial.topic + '". Gunakan heading ##, bullet, contoh, dan kesimpulan. ~400-600 kata. Kembalikan HANYA markdown.';
-          this.newMaterial.content = (await this.callAI(prompt)).trim();
-          this.newMaterial.title = this.newMaterial.title || this.aiMaterial.topic;
-          this.toast('Materi dibuat dengan AI.', 'success');
+          html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <i>' + (userEssay || 'Tidak dijawab') + '</i></div>';
+          html += '<div style="font-size:12px; color:#059669;">Kunci: <i>' + q.explanation + '</i></div>';
         }
-      } catch (e) { this.toast('AI error: ' + e.message, 'error'); }
-      finally { this.aiMaterial.loading = false; }
-    },
-    async aiGenerateQuiz() {
-      if (!this.selectedMaterialId) return this.toast('Pilih materi dulu.', 'error');
-      if (!this.aiQuiz.topic.trim()) return this.toast('Isi topik soal.', 'error');
-      this.aiQuiz.loading = true;
-      try {
-        const n = Math.max(1, Math.min(10, parseInt(this.aiQuiz.count)||3));
-        let arr;
-        if (this.mode === 'demo' && !this.cfg.aiKey) {
-          await new Promise(r => setTimeout(r, 900));
-          arr = this._mockQuiz(this.aiQuiz.topic, n);
-        } else {
-          const prompt = 'Buat ' + n + ' soal pilihan ganda Bahasa Indonesia tentang topik: "' + this.aiQuiz.topic + '". Kembalikan HANYA JSON array valid (tanpa code fence): [{"question":"...","options":["...","...","...","..."],"correct_option":0,"explanation":"..."}]';
-          arr = this.parseAIJSON(await this.callAI(prompt));
-        }
-        if (!Array.isArray(arr) || !arr.length) throw new Error('AI tidak mengembalikan array.');
-        const rows = arr.map(q => ({
-          material_id: this.selectedMaterialId, guru_id: this.profile.id,
-          question: String(q.question||'').trim(),
-          question_image: '',
-          options: (q.options||[]).map(o => String(o).trim()),
-          option_images: (q.options||[]).map(()=>''),
-          correct_option: Math.max(0, Math.min((q.options||[]).length-1, parseInt(q.correct_option)||0)),
-          explanation: String(q.explanation||'').trim() || '-'
-        })).filter(r => r.question && r.options.length >= 2);
-        if (!rows.length) throw new Error('Soal tidak valid.');
-        for (const r of rows) await this.dbInsert('quizzes', r);
-        this.quizzes = await this.fetchQuizzesForMaterial(this.selectedMaterialId);
-        this.aiQuiz.topic = '';
-        this.toast(rows.length + ' soal dibuat.', 'success');
-      } catch (e) { this.toast('AI error: ' + e.message, 'error'); }
-      finally { this.aiQuiz.loading = false; }
-    },
-    _mockMarkdown(topic) {
-      const t = topic.trim();
-      return '# ' + t + '\n\n## Pengertian\n**' + t + '** merupakan topik penting yang perlu dipahami. Secara umum, ' + t + ' dapat didefinisikan sebagai konsep fundamental yang berkaitan dengan berbagai aspek di sekitarnya.\n\n## Poin-Poin Penting\n1. **Konsep dasar** — memahami definisi & istilah kunci\n2. **Karakteristik** — ciri utama yang membedakan\n3. **Penerapan** — bagaimana ' + t + ' digunakan\n4. **Contoh** — ilustrasi konkret\n\n## Penjelasan Detail\nSaat mempelajari ' + t + ', penting memperhatikan hubungan antar-konsep.\n\n> Pemahaman mendalam tentang ' + t + ' memudahkan kaitannya dengan topik terkait.\n\n## Contoh Kasus\n- Kasus 1: penerapan ' + t + ' sehari-hari\n- Kasus 2: analisis sederhana\n- Kasus 3: perbandingan dengan konsep serupa\n\n## Kesimpulan\n' + t + ' adalah topik kaya penerapan praktis.\n\n---\n*Mock Generator (Demo Mode). Isi AI API Key untuk hasil asli.*';
-    },
-    _mockQuiz(topic, n) {
-      const base = [
-        { q:'Apa pengertian utama dari "' + topic + '"?', o:['Konsep dasar yang dipelajari','Sesuatu yang tidak berkaitan','Istilah asing tanpa makna','Hanya berlaku di luar negeri'], c:0, e:'"' + topic + '" berkaitan langsung dengan konsep dasar.' },
-        { q:'Manakah yang BUKAN ciri "' + topic + '"?', o:['Memiliki karakteristik khusus','Dapat diterapkan','Tidak dapat dipelajari','Berkaitan dengan konsep lain'], c:2, e:'Semua topik dapat dipelajari.' },
-        { q:'Cara terbaik memahami "' + topic + '"?', o:['Menghafal tanpa paham','Baca, latih, kaitkan contoh','Hindari latihan','Dengar sekali'], c:1, e:'Pemahaman via membaca, latihan, contoh.' },
-        { q:'Mengapa "' + topic + '" penting?', o:['Dapat diterapkan dalam hidup & ujian','Karena disuruh guru','Agar terlihat pintar','Tidak penting'], c:0, e:'Tujuan pembelajaran = penerapan praktis.' },
-        { q:'Apa itu penerapan "' + topic + '"?', o:['Menggunakan konsep di situasi nyata','Menghafal definisi saja','Mengabaikan teori','Menyalin pekerjaan'], c:0, e:'Penerapan = penggunaan pada situasi nyata.' }
-      ];
-      const arr = [];
-      for (let i = 0; i < n; i++) {
-        const b = base[i % base.length];
-        arr.push({ question: b.q, options: b.o, correct_option: b.c, explanation: b.e });
+        html += '</div>';
       }
-      return arr;
+      html += '</div>';
+
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      await html2pdf().set({
+        margin: 0, filename: 'Hasil_Tes_' + this.profile.name + '.pdf',
+        image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2 }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
+      }).from(wrap).save();
     },
 
-    /* ═══════════════════════════════════════════════════════
-       PDF REPORT
-       ═══════════════════════════════════════════════════════ */
-    async buildReport(classId) {
-      const cls = this.classes.find(c => c.id === classId);
-      let subs = [];
-      if (this.mode === 'demo') {
-        const mats = (this.demoData?.materials || []).filter(m => m.class_id === classId);
-        const qzs = (this.demoData?.quizzes || []).filter(q => mats.map(m => m.id).includes(q.material_id));
-        const qzIds = qzs.map(q => q.id);
-        subs = (this.demoData?.quiz_submissions || [])
-          .filter(s => qzIds.includes(s.quiz_id))
-          .map(s => ({ ...s, profiles: (this.demoData?.profiles || []).find(p => p.id === s.siswa_id) }));
-      } else {
-        const { data: m } = await this.sb.from('materials').select('id').eq('class_id', classId);
-        const matIds = (m||[]).map(x => x.id);
-        if (matIds.length) {
-          const { data: q } = await this.sb.from('quizzes').select('id').in('material_id', matIds);
-          const qIds = (q||[]).map(x => x.id);
-          if (qIds.length) {
-            const { data: s } = await this.sb.from('quiz_submissions').select('*, profiles:siswa_id(name)').in('quiz_id', qIds);
-            subs = s || [];
-          }
-        }
-      }
-      const byStudent = {};
-      for (const s of subs) {
-        const nm = s.profiles?.name || 'Siswa';
-        if (!byStudent[nm]) byStudent[nm] = { total:0, correct:0 };
-        byStudent[nm].total++;
-        if (s.is_correct) byStudent[nm].correct++;
-      }
-      const memberNames = (this.membersByClass[classId] || []).map(m => m.profiles?.name).filter(Boolean);
-      const allNames = Array.from(new Set([...memberNames, ...Object.keys(byStudent)]));
-      const rows = allNames.map(nm => {
-        const st = byStudent[nm] || { total:0, correct:0 };
-        const score = st.total ? Math.round((st.correct / st.total) * 100) : 0;
-        return { name: nm, total: st.total, correct: st.correct, score };
-      });
-      return {
-        classTitle: cls?.title || '-', classCode: cls?.class_code || '-',
-        rows, generatedAt: new Date().toLocaleString('id-ID')
-      };
-    },
+    // Laporan PDF Per Siswa
     async exportReportPDF(classId) {
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
-      const r = await this.buildReport(classId);
-      const html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">' +
-        '<div style="display:flex;justify-content:space-between;border-bottom:3px solid #0284c7;padding-bottom:12px;margin-bottom:18px">' +
-        '<div><div style="font-size:22px;font-weight:800;color:#0284c7">LiveLearn — Laporan Kelas</div>' +
-        '<div style="font-size:12px;color:#64748b">Interactive Learning Platform</div></div>' +
-        '<div style="text-align:right;font-size:11px;color:#64748b">' +
-        '<div><b>Kelas:</b> ' + r.classTitle + '</div>' +
-        '<div><b>Kode:</b> ' + r.classCode + '</div>' +
-        '<div><b>Guru:</b> ' + (this.profile?.name || '-') + '</div>' +
-        '<div><b>Dicetak:</b> ' + r.generatedAt + '</div></div></div>' +
-        '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#e0f2fe;color:#0c4a6e">' +
-        '<th style="text-align:left;padding:10px;border:1px solid #7dd3fc">#</th>' +
-        '<th style="text-align:left;padding:10px;border:1px solid #7dd3fc">Nama Siswa</th>' +
-        '<th style="text-align:center;padding:10px;border:1px solid #7dd3fc">Total</th>' +
-        '<th style="text-align:center;padding:10px;border:1px solid #7dd3fc">Benar</th>' +
-        '<th style="text-align:center;padding:10px;border:1px solid #7dd3fc">Skor</th>' +
-        '<th style="text-align:center;padding:10px;border:1px solid #7dd3fc">Predikat</th></tr></thead><tbody>' +
-        (r.rows.length ? r.rows.map((x,i) => '<tr style="background:' + (i%2?'#f0f9ff':'#fff') + '">' +
-          '<td style="padding:9px;border:1px solid #e2e8f0">' + (i+1) + '</td>' +
-          '<td style="padding:9px;border:1px solid #e2e8f0"><b>' + x.name + '</b></td>' +
-          '<td style="padding:9px;border:1px solid #e2e8f0;text-align:center">' + x.total + '</td>' +
-          '<td style="padding:9px;border:1px solid #e2e8f0;text-align:center">' + x.correct + '</td>' +
-          '<td style="padding:9px;border:1px solid #e2e8f0;text-align:center;font-weight:700;color:' + (x.score>=75?'#0284c7':x.score>=50?'#ea580c':'#dc2626') + '">' + x.score + '</td>' +
-          '<td style="padding:9px;border:1px solid #e2e8f0;text-align:center">' + (x.score>=85?'A':x.score>=75?'B':x.score>=60?'C':x.score>=40?'D':'E') + '</td></tr>').join('')
-          : '<tr><td colspan="6" style="padding:18px;text-align:center;color:#94a3b8;border:1px solid #e2e8f0">Belum ada submission</td></tr>') +
-        '</tbody></table><div style="margin-top:20px;font-size:11px;color:#64748b">* Laporan dihasilkan otomatis oleh LiveLearn.</div></div>';
+      const cls = this.classes.find(c => c.id === classId);
+      let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
+      html += '<div style="border-bottom:3px solid #0284c7;padding-bottom:12px;margin-bottom:18px"><div style="font-size:22px;font-weight:800;color:#0284c7">LiveLearn — Laporan Per Siswa</div>';
+      html += '<div style="font-size:12px;color:#64748b">Kelas: ' + (cls?.title || '-') + ' · Kode: ' + (cls?.class_code || '-') + '</div></div>';
+
+      const members = this.membersByClass[classId] || [];
+      for (const m of members) {
+        const namaSiswa = m.profiles?.name || 'Siswa';
+        const subs = (this.demoData?.quiz_submissions || []).filter(s => s.siswa_id === m.siswa_id);
+        
+        html += '<div style="margin-bottom:20px; padding:15px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc">';
+        html += '<div style="font-size:16px; font-weight:bold; color:#0c4a6e; margin-bottom:10px;">Nama Siswa: ' + namaSiswa + '</div>';
+        
+        if (!subs.length) {
+          html += '<div style="font-size:12px; color:#ef4444;">Belum mengerjakan kuis apapun.</div>';
+        } else {
+          html += '<table style="width:100%; border-collapse:collapse; font-size:11px;">';
+          html += '<tr style="background:#e0f2fe;"><th style="padding:6px;border:1px solid #bae6fd;">Soal</th><th style="padding:6px;border:1px solid #bae6fd;">Tipe</th><th style="padding:6px;border:1px solid #bae6fd;">Jawaban</th><th style="padding:6px;border:1px solid #bae6fd;">Hasil</th></tr>';
+          
+          for (const s of subs) {
+            const q = this.demoData.quizzes.find(x => x.id === s.quiz_id);
+            if (!q) continue;
+            const ans = q.type === 'essay' ? 'Esai: ' + (s.answer_text || s.student_answer) : q.options[s.student_answer];
+            html += '<tr>';
+            html += '<td style="padding:6px;border:1px solid #e2e8f0;">' + q.question + '</td>';
+            html += '<td style="padding:6px;border:1px solid #e2e8f0; text-align:center;">' + (q.type === 'essay' ? 'Esai' : 'PG') + '</td>';
+            html += '<td style="padding:6px;border:1px solid #e2e8f0;">' + ans + '</td>';
+            html += '<td style="padding:6px;border:1px solid #e2e8f0; text-align:center; font-weight:bold; color:' + (s.is_correct ? '#059669' : q.type==='essay'?'#64748b':'#dc2626') + '">' + (q.type === 'essay' ? 'Perlu Dinilai' : (s.is_correct ? 'BENAR' : 'SALAH')) + '</td>';
+            html += '</tr>';
+          }
+          html += '</table>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       try {
         await html2pdf().set({
-          margin: 0,
-          filename: 'Laporan_' + r.classCode + '_' + new Date().toISOString().slice(0,10) + '.pdf',
-          image: { type:'jpeg', quality:0.98 },
-          html2canvas: { scale:2, useCORS:true },
-          jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
+          margin: 0, filename: 'Laporan_Siswa_' + cls.class_code + '.pdf',
+          image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2, useCORS:true }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
         }).from(wrap).save();
-        this.toast('PDF dibuat.', 'success');
+        this.toast('PDF Per Siswa dibuat.', 'success');
       } catch (e) { this.toast('PDF gagal: ' + e.message, 'error'); }
     },
 
-    /* ═══════════════════════════════════════════════════════
-       MIGRATE
-       ═══════════════════════════════════════════════════════ */
-    async migrateDemoToCloud() {
-      if (this.mode !== 'cloud' || !this.isGuru) return;
-      if (!confirm('Import kelas & materi DEMO ke akun cloud Anda?')) return;
-      try {
-        const demo = this.loadDemoDb();
-        const guruClassIds = ['class-1', 'class-2'];
-        let cN = 0, mN = 0, qN = 0;
-        for (const oldClass of demo.classes.filter(c => guruClassIds.includes(c.id))) {
-          const newCode = this.genCode();
-          const { data: newClass, error: e1 } = await this.sb.from('classes').insert({
-            guru_id: this.profile.id, title: oldClass.title + ' (imported)', class_code: newCode
-          }).select().single();
-          if (e1) throw e1;
-          cN++;
-          for (const mat of demo.materials.filter(m => m.class_id === oldClass.id)) {
-            const { data: newMat, error: e2 } = await this.sb.from('materials').insert({
-              guru_id: this.profile.id, class_id: newClass.id,
-              title: mat.title, content: mat.content, is_active: mat.is_active
-            }).select().single();
-            if (e2) throw e2;
-            mN++;
-            for (const qz of demo.quizzes.filter(q => q.material_id === mat.id)) {
-              const { error: e3 } = await this.sb.from('quizzes').insert({
-                material_id: newMat.id, guru_id: this.profile.id,
-                question: qz.question,
-                question_image: qz.question_image || null,
-                options: qz.options,
-                option_images: qz.option_images || [],
-                correct_option: qz.correct_option,
-                explanation: qz.explanation
-              });
-              if (e3) throw e3;
-              qN++;
-            }
-          }
-        }
-        this.toast('Migrasi: ' + cN + ' kelas, ' + mN + ' materi, ' + qN + ' soal.', 'success');
-        await this.loadGuruData();
-      } catch (e) { this.toast('Migrasi gagal: ' + e.message, 'error'); }
-    },
-
-    /* ═══════════════════════════════════════════════════════
-       UTILS
-       ═══════════════════════════════════════════════════════ */
     toast(msg, type) {
       type = type || 'info';
       const id = Date.now() + Math.random();
@@ -1997,98 +1381,6 @@ function app() {
   </template>
 </div>
 
-<!-- CONFIG MODAL -->
-<div x-show="configOpen" x-transition.opacity class="modal-bg" @click.self="configOpen=false" @keydown.escape.window="configOpen=false">
-  <div class="w-full max-w-xl max-h-[92vh] overflow-auto rounded-2xl border border-sky-200/40 dark:border-sky-800/40 shadow-2xl glass bg-white/90 dark:bg-slate-900/90">
-    <div class="px-6 py-5 bg-gradient-to-r from-sky-900 via-sky-700 to-sky-500 text-white relative overflow-hidden">
-      <div class="absolute inset-0 opacity-30" style="background:radial-gradient(circle at 30% 30%, rgba(249,115,22,.5), transparent 60%)"></div>
-      <div class="relative flex items-center gap-3">
-        <div class="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center backdrop-blur">
-          <i data-lucide="settings" class="w-5 h-5"></i>
-        </div>
-        <div>
-          <div class="font-bold text-lg">Pengaturan & Konfigurasi</div>
-          <div class="text-xs text-sky-100">Supabase + AI Provider</div>
-        </div>
-      </div>
-    </div>
-    <div class="p-6 space-y-4">
-      <template x-if="configHardcoded">
-  <div class="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 p-3 text-xs">
-    <div class="flex items-start gap-2">
-      <i data-lucide="lock" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5"></i>
-      <div>
-        <div class="font-bold text-emerald-800 dark:text-emerald-300">Supabase terkunci (hardcode)</div>
-        <div class="text-emerald-700 dark:text-emerald-400 mt-0.5">
-          URL & Anon Key sudah di-hardcode — semua device otomatis terkoneksi. 
-          <b>AI Provider, Model, dan AI Key tetap bisa diisi bebas di bawah.</b>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
-      <div>
-        <label class="label">
-  Supabase URL
-  <template x-if="configHardcoded"><span class="normal-case text-[10px] text-emerald-600 dark:text-emerald-400 ml-1">· dari file HTML</span></template>
-</label>
-        <input x-model="cfgDraft.supabaseUrl" class="input" placeholder="https://yeuxxxx.supabase.co" :disabled="configHardcoded">
-      </div>
-      <div>
-        <label class="label">
-  Supabase Anon Key
-  <template x-if="configHardcoded"><span class="normal-case text-[10px] text-emerald-600 dark:text-emerald-400 ml-1">· dari file HTML</span></template>
-</label>
-        <textarea x-model="cfgDraft.supabaseKey" rows="2" class="input font-mono text-xs" placeholder="eyJk912EVHcxxxxxx" :disabled="configHardcoded"></textarea>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="label">AI Provider</label>
-          <select x-model="cfgDraft.aiProvider" class="input">
-            <option value="gemini">Google Gemini</option>
-            <option value="groq">Groq</option>
-          </select>
-        </div>
-        <div>
-  <label class="label">Model (opsional)</label>
-  <input x-model="cfgDraft.aiModel" class="input" 
-         :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-1.5-flash' : 'qwen/qwen3.8-27b'">
-</div>
-      </div>
-      <div>
-        <label class="label">AI API Key</label>
-        <input x-model="cfgDraft.aiKey" type="password" class="input font-mono text-xs" placeholder="AIza... (Gemini) / gsk_... (Groq)">
-        <p class="text-[11px] text-slate-500 mt-1">Kosongkan jika hanya pakai Mock Generator.</p>
-      </div>
-      <div class="rounded-xl border border-orange-200/60 dark:border-orange-800/40 bg-orange-50/70 dark:bg-orange-950/30 p-4">
-        <div class="flex items-center gap-2 mb-2">
-          <i data-lucide="smartphone" class="w-4 h-4 text-orange-600 dark:text-orange-400"></i>
-          <div class="text-xs font-bold uppercase tracking-wide text-orange-700 dark:text-orange-300">Pindah Device?</div>
-        </div>
-        <p class="text-[11px] text-slate-600 dark:text-slate-400 mb-3">Export / Import / Share config ke device lain.</p>
-        <div class="flex flex-wrap gap-2">
-          <button @click="exportConfig()" class="btn btn-orange btn-sm"><i data-lucide="download" class="w-3 h-3"></i> Export JSON</button>
-          <label class="btn btn-ghost btn-sm cursor-pointer">
-            <i data-lucide="upload" class="w-3 h-3"></i> Import JSON
-            <input type="file" accept="application/json" @change="importConfig($event)" class="hidden">
-          </label>
-          <button @click="shareConfigLink()" class="btn btn-primary btn-sm"><i data-lucide="qr-code" class="w-3 h-3"></i> Share via Link</button>
-        </div>
-      </div>
-      <div class="text-[11px] text-slate-500 bg-slate-100/60 dark:bg-slate-800/60 rounded-xl p-3 leading-relaxed">
-        💡 <b>Tips:</b> Hardcode URL + Anon Key di atas file HTML, lalu hosting file. Semua device yang buka URL akan otomatis terkoneksi tanpa setup apapun.
-      </div>
-      <div class="flex gap-2 pt-2">
-        <button @click="saveConfig()" class="btn btn-primary flex-1">
-          <i data-lucide="save" class="w-4 h-4"></i> Simpan
-        </button>
-        <button @click="configOpen=false" class="btn btn-ghost"><i data-lucide="x" class="w-4 h-4"></i></button>
-        <button @click="resetAllConfig()" class="btn btn-danger" title="Reset"><i data-lucide="rotate-ccw" class="w-4 h-4"></i></button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- LOADING -->
 <template x-if="booting">
   <div class="fixed inset-0 z-40 flex items-center justify-center glass bg-white/60 dark:bg-slate-950/70">
@@ -2121,36 +1413,9 @@ function app() {
         <p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
           Multi-guru, multi-siswa, realtime. Coba langsung di <b>Demo Mode</b>, atau hubungkan ke <b>Supabase</b> untuk produksi.
         </p>
-        <div class="flex flex-wrap gap-2">
-          <span class="chip bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200"><i data-lucide="zap" class="w-3 h-3"></i> Realtime</span>
-          <span class="chip bg-orange-100 text-orange-800 dark:bg-orange-900/60 dark:text-orange-200"><i data-lucide="sparkles" class="w-3 h-3"></i> AI Quiz Gen</span>
-          <span class="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200"><i data-lucide="shield-check" class="w-3 h-3"></i> RLS Supabase</span>
-          <span class="chip bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200"><i data-lucide="file-spreadsheet" class="w-3 h-3"></i> Excel Import</span>
-          <span class="chip bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200"><i data-lucide="image" class="w-3 h-3"></i> Gambar Soal</span>
-        </div>
       </div>
 
       <div class="card p-6 sm:p-8 shadow-2xl">
-        <div class="flex items-center justify-between mb-5">
-          <div class="lg:hidden flex items-center gap-2">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-900 to-sky-500 flex items-center justify-center">
-              <i data-lucide="graduation-cap" class="w-5 h-5 text-white"></i>
-            </div>
-            <div class="font-black gradient-text">LiveLearn</div>
-          </div>
-          <div class="flex items-center gap-2 ml-auto">
-            <template x-if="configHardcoded">
-              <span class="chip bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
-                <i data-lucide="lock" class="w-3 h-3"></i> Cloud
-              </span>
-            </template>
-            <div class="cursor-pointer toggle-switch" :class="theme==='dark' ? 'on' : ''" @click="toggleTheme()" title="Theme"></div>
-            <button @click="openConfig()" class="btn btn-ghost btn-sm" title="Pengaturan">
-              <i data-lucide="settings" class="w-4 h-4"></i>
-            </button>
-          </div>
-        </div>
-
         <div class="grid grid-cols-2 gap-2 mb-5 bg-slate-100/70 dark:bg-slate-800/50 p-1 rounded-2xl">
           <button @click="authTab='demo'; switchMode('demo')"
                   class="py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2"
@@ -2164,13 +1429,7 @@ function app() {
           </button>
         </div>
 
-        <!-- DEMO TAB -->
         <div x-show="authTab==='demo'" class="space-y-4">
-          <div class="text-center">
-            <div class="chip bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-200 mx-auto">
-              <i data-lucide="flask-conical" class="w-3 h-3"></i> Mode Uji Coba — Tanpa Setup
-            </div>
-          </div>
           <div class="grid grid-cols-2 gap-3">
             <button @click="demoLogin('sari@demo.local')" class="btn btn-primary w-full py-3">
               <i data-lucide="presentation" class="w-4 h-4"></i> Guru (Demo)
@@ -2179,119 +1438,44 @@ function app() {
               <i data-lucide="user" class="w-4 h-4"></i> Siswa (Demo)
             </button>
           </div>
-
-          <div class="rounded-2xl border border-sky-200/50 dark:border-sky-800/50 p-4 bg-gradient-to-br from-sky-50/70 to-white dark:from-sky-950/40 dark:to-slate-900/40">
-            <div class="text-xs font-bold uppercase tracking-wider text-sky-800 dark:text-sky-300 mb-3 flex items-center gap-1.5">
-              <i data-lucide="qr-code" class="w-3.5 h-3.5"></i> Scan untuk login cepat
-            </div>
-            <div class="flex flex-col sm:flex-row gap-4 items-center">
-              <div class="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
-                <canvas x-init="initQRCode($el)" class="block"></canvas>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-                  Scan QR untuk login sebagai <b>Ibu Sari Wulandari (Guru)</b>.
-                </div>
-                <div class="bg-white rounded-lg p-2 border border-slate-200 mb-2 overflow-hidden">
-                  <svg x-init="initBarcode($el)" class="block mx-auto max-w-full"></svg>
-                </div>
-                <button @click="demoLogin('sari@demo.local')" class="btn btn-primary btn-sm w-full">
-                  <i data-lucide="log-in" class="w-3 h-3"></i> Login via QR
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <details class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
-            <summary class="px-4 py-3 cursor-pointer text-sm font-bold flex items-center gap-2">
-              <i data-lucide="users" class="w-4 h-4"></i> Semua Akun Sample (<span x-text="(demoGurus.length + demoSiswas.length)"></span>)
-            </summary>
-            <div class="p-3 space-y-2 max-h-64 overflow-auto">
-              <div class="text-[10px] uppercase font-bold text-orange-600 dark:text-orange-400 tracking-wider">Guru</div>
-              <template x-for="g in demoGurus" :key="g.id">
-                <button @click="demoLogin(g.email)" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition flex items-center gap-2">
-                  <div class="w-7 h-7 rounded-full bg-gradient-to-br from-sky-700 to-sky-500 text-white flex items-center justify-center text-[11px] font-bold flex-shrink-0" x-text="g.name.charAt(0)"></div>
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs font-bold truncate" x-text="g.name"></div>
-                    <div class="text-[10px] text-slate-500 truncate" x-text="g.email"></div>
-                  </div>
-                  <i data-lucide="arrow-right" class="w-3 h-3 text-slate-400"></i>
-                </button>
-              </template>
-              <div class="text-[10px] uppercase font-bold text-orange-600 dark:text-orange-400 tracking-wider mt-2">Siswa</div>
-              <template x-for="s in demoSiswas" :key="s.id">
-                <button @click="demoLogin(s.email)" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition flex items-center gap-2">
-                  <div class="w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-orange-400 text-white flex items-center justify-center text-[11px] font-bold flex-shrink-0" x-text="s.name.charAt(0)"></div>
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs font-bold truncate" x-text="s.name"></div>
-                    <div class="text-[10px] text-slate-500 truncate" x-text="s.email"></div>
-                  </div>
-                  <i data-lucide="arrow-right" class="w-3 h-3 text-slate-400"></i>
-                </button>
-              </template>
-            </div>
-          </details>
-
-          <button @click="resetDemoData()" class="text-[11px] text-slate-500 hover:text-orange-600 dark:hover:text-orange-400 w-full text-center">
-            <i data-lucide="rotate-ccw" class="w-3 h-3 inline"></i> Reset data demo
-          </button>
         </div>
 
-        <!-- CLOUD TAB -->
         <div x-show="authTab==='cloud'" class="space-y-4">
-          <template x-if="!cfg.supabaseUrl || !cfg.supabaseKey">
-            <div class="rounded-xl bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 p-4 text-sm">
-              <div class="flex items-start gap-2">
-                <i data-lucide="alert-triangle" class="w-4 h-4 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5"></i>
-                <div>
-                  <div class="font-bold text-orange-800 dark:text-orange-300 mb-1">Supabase belum dikonfigurasi</div>
-                  <div class="text-xs text-orange-700 dark:text-orange-400 mb-2">Isi URL & Anon Key terlebih dahulu.</div>
-                  <button @click="openConfig()" class="btn btn-orange btn-sm">
-                    <i data-lucide="settings" class="w-3 h-3"></i> Buka Pengaturan
-                  </button>
-                </div>
+          <div class="flex gap-2 bg-slate-100/70 dark:bg-slate-800/50 p-1 rounded-xl">
+            <button @click="authMode='login'" class="flex-1 py-2 rounded-lg text-sm font-semibold transition"
+                    :class="authMode==='login' ? 'bg-white dark:bg-slate-700 shadow text-sky-700 dark:text-sky-300' : 'text-slate-500'">Masuk</button>
+            <button @click="authMode='register'" class="flex-1 py-2 rounded-lg text-sm font-semibold transition"
+                    :class="authMode==='register' ? 'bg-white dark:bg-slate-700 shadow text-sky-700 dark:text-sky-300' : 'text-slate-500'">Daftar</button>
+          </div>
+          <template x-if="authMode==='register'">
+            <div>
+              <label class="label">Nama Lengkap</label>
+              <input x-model="authForm.name" class="input" placeholder="Nama Anda">
+            </div>
+          </template>
+          <div><label class="label">Email</label><input x-model="authForm.email" type="email" class="input" placeholder="nama@email.com"></div>
+          <div><label class="label">Password</label><input x-model="authForm.password" type="password" class="input" placeholder="Min 6 karakter"></div>
+          <template x-if="authMode==='register'">
+            <div>
+              <label class="label">Daftar Sebagai</label>
+              <div class="grid grid-cols-2 gap-2">
+                <button @click="authForm.role='guru'" class="p-3 rounded-xl border-2 text-center text-sm font-semibold transition"
+                        :class="authForm.role==='guru' ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'">
+                  <i data-lucide="presentation" class="w-5 h-5 mx-auto mb-1"></i> Guru
+                </button>
+                <button @click="authForm.role='siswa'" class="p-3 rounded-xl border-2 text-center text-sm font-semibold transition"
+                        :class="authForm.role==='siswa' ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'">
+                  <i data-lucide="user" class="w-5 h-5 mx-auto mb-1"></i> Siswa
+                </button>
               </div>
             </div>
           </template>
-          <template x-if="cfg.supabaseUrl && cfg.supabaseKey">
-            <div class="space-y-4">
-              <div class="flex gap-2 bg-slate-100/70 dark:bg-slate-800/50 p-1 rounded-xl">
-                <button @click="authMode='login'" class="flex-1 py-2 rounded-lg text-sm font-semibold transition"
-                        :class="authMode==='login' ? 'bg-white dark:bg-slate-700 shadow text-sky-700 dark:text-sky-300' : 'text-slate-500'">Masuk</button>
-                <button @click="authMode='register'" class="flex-1 py-2 rounded-lg text-sm font-semibold transition"
-                        :class="authMode==='register' ? 'bg-white dark:bg-slate-700 shadow text-sky-700 dark:text-sky-300' : 'text-slate-500'">Daftar</button>
-              </div>
-              <template x-if="authMode==='register'">
-                <div>
-                  <label class="label">Nama Lengkap</label>
-                  <input x-model="authForm.name" class="input" placeholder="Nama Anda">
-                </div>
-              </template>
-              <div><label class="label">Email</label><input x-model="authForm.email" type="email" class="input" placeholder="nama@email.com"></div>
-              <div><label class="label">Password</label><input x-model="authForm.password" type="password" class="input" placeholder="Min 6 karakter"></div>
-              <template x-if="authMode==='register'">
-                <div>
-                  <label class="label">Daftar Sebagai</label>
-                  <div class="grid grid-cols-2 gap-2">
-                    <button @click="authForm.role='guru'" class="p-3 rounded-xl border-2 text-center text-sm font-semibold transition"
-                            :class="authForm.role==='guru' ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'">
-                      <i data-lucide="presentation" class="w-5 h-5 mx-auto mb-1"></i> Guru
-                    </button>
-                    <button @click="authForm.role='siswa'" class="p-3 rounded-xl border-2 text-center text-sm font-semibold transition"
-                            :class="authForm.role==='siswa' ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300' : 'border-slate-200 dark:border-slate-700 text-slate-500'">
-                      <i data-lucide="user" class="w-5 h-5 mx-auto mb-1"></i> Siswa
-                    </button>
-                  </div>
-                </div>
-              </template>
-              <div x-show="authError" class="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl px-3 py-2" x-text="authError"></div>
-              <button @click="cloudAuth()" :disabled="authLoading" class="btn btn-primary w-full py-3">
-                <template x-if="authLoading"><i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i></template>
-                <template x-if="!authLoading"><i data-lucide="log-in" class="w-4 h-4"></i></template>
-                <span x-text="authMode==='login' ? 'Masuk Cloud' : 'Daftar Cloud'"></span>
-              </button>
-            </div>
-          </template>
+          <div x-show="authError" class="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl px-3 py-2" x-text="authError"></div>
+          <button @click="cloudAuth()" :disabled="authLoading" class="btn btn-primary w-full py-3">
+            <template x-if="authLoading"><i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i></template>
+            <template x-if="!authLoading"><i data-lucide="log-in" class="w-4 h-4"></i></template>
+            <span x-text="authMode==='login' ? 'Masuk Cloud' : 'Daftar Cloud'"></span>
+          </button>
         </div>
       </div>
     </div>
@@ -2311,7 +1495,6 @@ function app() {
           <div class="text-[10px] text-slate-500 dark:text-slate-400 leading-none mt-0.5 flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full" :class="mode==='demo' ? 'bg-orange-400 animate-pulse' : 'bg-emerald-400 animate-pulse'"></span>
             <span x-text="mode==='demo' ? 'Demo Mode' : 'Cloud Mode'"></span>
-            <template x-if="configHardcoded"><span class="text-emerald-500">· 🔒 hardcoded</span></template>
           </div>
         </div>
         <div class="hidden md:flex items-center gap-2 bg-slate-100/70 dark:bg-slate-800/60 rounded-xl px-3 py-2">
@@ -2323,10 +1506,6 @@ function app() {
           </div>
         </div>
         <div class="cursor-pointer toggle-switch" :class="theme==='dark' ? 'on' : ''" @click="toggleTheme()" title="Theme"></div>
-        <button @click="mode==='demo' ? switchMode('cloud') : switchMode('demo')" class="btn btn-ghost btn-sm" :title="mode==='demo' ? 'Ganti ke Cloud' : 'Ganti ke Demo'">
-          <i :data-lucide="mode==='demo' ? 'cloud' : 'gamepad-2'" class="w-4 h-4"></i>
-        </button>
-        <button @click="openConfig()" class="btn btn-ghost btn-sm" title="Pengaturan"><i data-lucide="settings" class="w-4 h-4"></i></button>
         <button @click="logout()" class="btn btn-ghost btn-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50" title="Logout">
           <i data-lucide="log-out" class="w-4 h-4"></i>
         </button>
@@ -2359,7 +1538,6 @@ function app() {
                 <div class="flex items-start justify-between gap-3 mb-3">
                   <div class="flex-1 min-w-0">
                     <div class="font-bold truncate" x-text="c.title"></div>
-                    <div class="text-xs text-slate-500 mt-0.5">Dibuat <span x-text="fmtDate(c.created_at)"></span></div>
                   </div>
                   <button @click="deleteClass(c.id)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-lg"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                 </div>
@@ -2368,68 +1546,54 @@ function app() {
                   <span class="font-mono font-bold text-sky-800 dark:text-sky-200 tracking-widest flex-1" x-text="c.class_code"></span>
                   <button @click="copyCode(c.class_code)" class="text-sky-700 dark:text-sky-300 hover:text-sky-900" title="Copy"><i data-lucide="copy" class="w-4 h-4"></i></button>
                 </div>
-                <div class="text-xs font-semibold mb-2 flex items-center gap-1"><i data-lucide="users" class="w-3 h-3"></i> Siswa: <span x-text="membersOf(c.id).length"></span></div>
-                <div class="flex flex-wrap gap-1.5 max-h-24 overflow-auto">
-                  <template x-for="m in membersOf(c.id)" :key="m.id">
-                    <span class="chip bg-slate-100 dark:bg-slate-800" x-text="m.profiles?.name || '—'"></span>
-                  </template>
-                  <template x-if="membersOf(c.id).length===0"><span class="text-xs text-slate-400 italic">Belum ada siswa</span></template>
-                </div>
               </div>
             </template>
-            <template x-if="classes.length===0"><div class="col-span-full card p-10 text-center text-slate-500"><i data-lucide="inbox" class="w-10 h-10 mx-auto mb-2 text-slate-300"></i>Belum ada kelas.</div></template>
           </div>
         </div>
-        <template x-if="mode==='cloud'">
-          <div class="rounded-2xl border border-orange-200 dark:border-orange-800/60 bg-gradient-to-br from-orange-50 to-white dark:from-orange-950/40 dark:to-slate-900/40 p-4">
-            <div class="flex items-start gap-3">
-              <div class="w-10 h-10 rounded-xl bg-orange-500 text-white flex items-center justify-center flex-shrink-0"><i data-lucide="package-plus" class="w-5 h-5"></i></div>
-              <div class="flex-1">
-                <div class="font-bold text-orange-800 dark:text-orange-300">Import Data Demo ke Cloud</div>
-                <p class="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-2">Pindahkan kelas, materi, dan soal dari Demo Mode ke akun cloud.</p>
-                <button @click="migrateDemoToCloud()" class="btn btn-orange btn-sm"><i data-lucide="upload-cloud" class="w-3 h-3"></i> Migrate Sekarang</button>
-              </div>
-            </div>
-          </div>
-        </template>
       </section>
 
       <!-- MATERIALS -->
       <section x-show="tab==='materials'" class="space-y-6">
         <div class="grid lg:grid-cols-5 gap-5">
           <div class="lg:col-span-2">
-            <div class="card p-5 space-y-3">
-              <h3 class="font-bold flex items-center gap-2"><i data-lucide="file-plus-2" class="w-4 h-4 text-sky-600 dark:text-sky-400"></i> Materi Baru</h3>
+            <div id="material-form" class="card p-5 space-y-3">
+              <h3 class="font-bold flex items-center gap-2">
+                <i data-lucide="file-plus-2" class="w-4 h-4 text-sky-600 dark:text-sky-400"></i> 
+                <span x-text="editingMaterialId ? 'Edit Materi' : 'Materi Baru'"></span>
+              </h3>
               <div>
                 <label class="label">Kelas</label>
-                <select x-model="newMaterial.class_id" class="input">
+                <select x-model="newMaterial.class_id" class="input" :disabled="editingMaterialId">
                   <option value="">-- Pilih kelas --</option>
                   <template x-for="c in classes" :key="c.id"><option :value="c.id" x-text="c.title"></option></template>
                 </select>
               </div>
               <div><label class="label">Judul</label><input x-model="newMaterial.title" class="input" placeholder="Persamaan Kuadrat"></div>
               <div>
-  <div class="flex items-center justify-between mb-1">
-    <label class="label mb-0">Konten (Markdown)</label>
-    <label class="btn btn-ghost btn-sm cursor-pointer" title="Upload file .txt, .md, atau .pdf">
-  <i data-lucide="upload" class="w-3 h-3"></i> Upload File
-  <input type="file" accept=".txt,.md,.pdf" @change="handleMaterialUpload($event)" class="hidden">
-</label>
-  </div>
-  <textarea x-model="newMaterial.content" rows="8" class="input font-mono text-xs" placeholder="# Judul&#10;&#10;Materi..."></textarea>
-</div>
-              <div class="rounded-xl border border-orange-200 dark:border-orange-800/60 bg-gradient-to-br from-orange-50 to-white dark:from-orange-950/40 dark:to-slate-900/40 p-3">
-                <label class="label text-orange-700 dark:text-orange-400">✨ Generate Materi dengan AI</label>
-                <div class="flex gap-2">
-                  <input x-model="aiMaterial.topic" class="input flex-1 text-sm" placeholder="Topik materi">
-                  <button @click="aiGenerateMaterial()" :disabled="aiMaterial.loading" class="btn btn-orange btn-sm">
-                    <template x-if="aiMaterial.loading"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></template>
-                    <template x-if="!aiMaterial.loading"><i data-lucide="sparkles" class="w-3 h-3"></i></template>
-                    Generate
-                  </button>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="label mb-0">Konten (Markdown)</label>
+                  <div class="flex gap-1">
+                    <label class="btn btn-ghost btn-sm cursor-pointer" title="Upload file .txt, .md, atau .pdf">
+                      <i data-lucide="upload" class="w-3 h-3"></i> Upload
+                      <input type="file" accept=".txt,.md,.pdf" @change="handleMaterialUpload($event)" class="hidden">
+                    </label>
+                    <label class="btn btn-ghost btn-sm cursor-pointer text-sky-500" title="Sisipkan Gambar">
+                      <i data-lucide="image" class="w-3 h-3"></i> Gambar
+                      <input type="file" accept="image/*" @change="handleMaterialImageUpload($event)" class="hidden">
+                    </label>
+                  </div>
                 </div>
+                <textarea x-model="newMaterial.content" rows="8" class="input font-mono text-xs" placeholder="# Judul&#10;&#10;Materi..."></textarea>
               </div>
-              <button @click="createMaterial()" class="btn btn-primary w-full"><i data-lucide="save" class="w-4 h-4"></i> Simpan Materi</button>
+              <div class="flex gap-2">
+                <template x-if="editingMaterialId">
+                  <button @click="cancelEditMaterial()" class="btn btn-ghost text-rose-500 w-1/3">Batal</button>
+                </template>
+                <button @click="createMaterial()" class="btn btn-primary flex-1">
+                  <i :data-lucide="editingMaterialId ? 'save' : 'plus'" class="w-4 h-4"></i> 
+                  <span x-text="editingMaterialId ? 'Update Materi' : 'Simpan Materi'"></span>
+                </button>
+              </div>
             </div>
           </div>
           <div class="lg:col-span-3">
@@ -2442,23 +1606,19 @@ function app() {
                     <div class="flex items-start justify-between gap-2">
                       <div class="flex-1 min-w-0">
                         <div class="font-semibold truncate" x-text="m.title"></div>
-                        <div class="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
-                          <span class="chip bg-slate-100 dark:bg-slate-800" x-text="classTitleById(m.class_id)"></span>
-                          <span x-text="fmtDate(m.created_at)"></span>
-                        </div>
                       </div>
                       <div class="flex items-center gap-1">
                         <button @click.stop="toggleMaterialActive(m)" class="chip transition"
                                 :class="m.is_active ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'">
-                          <i :data-lucide="m.is_active ? 'eye' : 'eye-off'" class="w-3 h-3"></i>
-                          <span x-text="m.is_active ? 'Aktif' : 'Draft'"></span>
+                          <i :data-lucide="m.is_active ? 'unlock' : 'lock'" class="w-3 h-3"></i>
+                          <span x-text="m.is_active ? 'Terbuka' : 'Terkunci'"></span>
                         </button>
+                        <button @click.stop="editMaterial(m)" class="text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-950/50 p-1.5 rounded-lg" title="Edit Materi"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
                         <button @click.stop="deleteMaterial(m.id)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-lg"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                       </div>
                     </div>
                   </div>
                 </template>
-                <template x-if="materials.length===0"><div class="text-center text-slate-400 py-10 text-sm italic">Belum ada materi.</div></template>
               </div>
             </div>
           </div>
@@ -2468,94 +1628,62 @@ function app() {
         <div x-show="selectedMaterialId" class="card p-5">
           <h3 class="font-bold mb-4 flex items-center gap-2"><i data-lucide="help-circle" class="w-4 h-4 text-sky-600 dark:text-sky-400"></i> Soal Kuis (<span x-text="quizzes.length"></span>)</h3>
           <div class="grid lg:grid-cols-2 gap-5">
-            <!-- Quiz list -->
             <div class="space-y-2 max-h-96 overflow-auto pr-1">
               <template x-for="(q,i) in quizzes" :key="q.id">
                 <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
                   <div class="flex justify-between gap-2">
                     <div class="flex-1 min-w-0">
-                      <div class="text-xs font-bold text-slate-500 mb-1">Soal #<span x-text="i+1"></span></div>
+                      <div class="text-xs font-bold text-slate-500 mb-1">Soal #<span x-text="i+1"></span> <span x-text="q.type === 'essay' ? '(Esai)' : '(PG)'"></span></div>
                       <div class="text-sm font-semibold" x-text="q.question"></div>
-                      <template x-if="q.question_image">
-                        <img :src="q.question_image" class="max-h-24 rounded mt-2 border border-slate-200 dark:border-slate-700" alt="" @error="$el.style.display='none'">
-                      </template>
-                      <div class="mt-2 space-y-1">
-                        <template x-for="(opt, idx) in q.options" :key="idx">
-                          <div class="text-xs flex items-center gap-2" :class="idx===q.correct_option ? 'text-emerald-700 dark:text-emerald-400 font-bold' : 'text-slate-600 dark:text-slate-400'">
-                            <span class="w-4 h-4 rounded-full border flex items-center justify-center text-[9px]" :class="idx===q.correct_option ? 'bg-emerald-100 border-emerald-300' : 'border-slate-300'"><span x-text="String.fromCharCode(65+idx)"></span></span>
-                            <template x-if="q.option_images && q.option_images[idx]">
-                              <img :src="q.option_images[idx]" class="h-6 rounded border border-slate-200 dark:border-slate-700" alt="" @error="$el.style.display='none'">
-                            </template>
-                            <span x-text="opt"></span>
-                          </div>
-                        </template>
-                      </div>
                       <div class="text-[11px] text-slate-500 italic mt-1.5" x-text="'Penjelasan: '+q.explanation"></div>
                     </div>
                     <button @click="editQuiz(q)" class="text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-950/50 p-1.5 rounded-lg self-start" title="Edit Soal"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
-					<button @click="deleteQuiz(q.id)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-lg self-start"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                    <button @click="deleteQuiz(q.id)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-lg self-start"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                   </div>
                 </div>
               </template>
-              <template x-if="quizzes.length===0"><div class="text-center text-slate-400 py-8 text-sm italic">Belum ada soal.</div></template>
             </div>
 
-            <!-- Add quiz form -->
             <div class="space-y-4">
-              <div class="rounded-xl border border-orange-200 dark:border-orange-800/60 bg-gradient-to-br from-orange-50 to-white dark:from-orange-950/40 dark:to-slate-900/40 p-3">
-                <label class="label text-orange-700 dark:text-orange-400">✨ Generate Soal dengan AI</label>
-                <div class="grid grid-cols-3 gap-2 mb-2">
-                  <input x-model="aiQuiz.topic" class="input col-span-2 text-sm" placeholder="Topik soal">
-                  <input x-model.number="aiQuiz.count" type="number" min="1" max="10" class="input text-sm">
-                </div>
-                <button @click="aiGenerateQuiz()" :disabled="aiQuiz.loading" class="btn btn-orange btn-sm w-full">
-                  <template x-if="aiQuiz.loading"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></template>
-                  <template x-if="!aiQuiz.loading"><i data-lucide="sparkles" class="w-3 h-3"></i></template>
-                  Generate <span x-text="aiQuiz.count"></span> Soal
-                </button>
-              </div>
-
               <div id="quiz-form" class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
                 <div class="flex items-center justify-between gap-2 flex-wrap">
                   <div class="text-xs font-bold text-slate-500 uppercase">Tambah Manual</div>
                   <div class="flex gap-1.5">
-                    <button @click="downloadExcelTemplate()" class="btn btn-ghost btn-sm" title="Download template Excel">
-                      <i data-lucide="file-spreadsheet" class="w-3 h-3"></i> Template
-                    </button>
-                    <label class="btn btn-orange btn-sm cursor-pointer" title="Import dari Excel">
-                      <i data-lucide="upload" class="w-3 h-3"></i> Import Excel
-                      <input type="file" accept=".xlsx,.xls,.csv" @change="parseExcel($event)" class="hidden">
-                    </label>
+                    <button @click="downloadExcelTemplate()" class="btn btn-ghost btn-sm" title="Download template Excel"><i data-lucide="file-spreadsheet" class="w-3 h-3"></i> Template</button>
+                    <label class="btn btn-orange btn-sm cursor-pointer" title="Import dari Excel"><i data-lucide="upload" class="w-3 h-3"></i> Import Excel<input type="file" accept=".xlsx,.xls,.csv" @change="parseExcel($event)" class="hidden"></label>
                   </div>
                 </div>
 
-                <!-- Pertanyaan -->
+                <div>
+                  <label class="label">Tipe Soal</label>
+                  <select x-model="newQuiz.type" class="input text-sm mb-2">
+                    <option value="pg">Pilihan Ganda</option>
+                    <option value="essay">Uraian / Esai</option>
+                  </select>
+                </div>
+
                 <div>
                   <label class="label">Pertanyaan</label>
                   <textarea x-model="newQuiz.question" rows="2" class="input text-sm" placeholder="Tulis pertanyaan..."></textarea>
                   <div class="mt-2">
                     <template x-if="newQuiz.question_image">
                       <div class="relative inline-block">
-                        <img :src="newQuiz.question_image" class="max-h-32 rounded-lg border border-slate-200 dark:border-slate-700" alt="Pertanyaan" @error="$el.style.display='none'">
-                        <button @click="removeQuestionImage()" class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-lg hover:bg-rose-600" title="Hapus">
-                          <i data-lucide="x" class="w-3 h-3"></i>
-                        </button>
+                        <img :src="newQuiz.question_image" class="max-h-32 rounded-lg border border-slate-200 dark:border-slate-700" alt="" @error="$el.style.display='none'">
+                        <button @click="removeQuestionImage()" class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-lg hover:bg-rose-600" title="Hapus"><i data-lucide="x" class="w-3 h-3"></i></button>
                       </div>
                     </template>
                     <template x-if="!newQuiz.question_image">
-                      <div class="flex items-center gap-2">
-                        <label class="btn btn-ghost btn-sm cursor-pointer">
-                          <i data-lucide="image-plus" class="w-3 h-3"></i> Upload Gambar
+                      <div class="mt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <label class="btn btn-ghost btn-sm cursor-pointer border-2 border-dashed border-sky-300 hover:border-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/30">
+                          <i data-lucide="image-plus" class="w-4 h-4 text-sky-500"></i> Upload Gambar
                           <input type="file" accept="image/*" @change="handleQuestionImageUpload($event)" class="hidden" :disabled="uploadingImage">
                         </label>
-                        <input type="url" x-model="newQuiz.question_image" class="input text-xs flex-1" placeholder="atau paste URL gambar">
                       </div>
                     </template>
                   </div>
                 </div>
 
-                <!-- Opsi -->
-                <div class="space-y-2">
+                <div x-show="newQuiz.type === 'pg'" class="space-y-2">
                   <label class="label">Opsi Jawaban</label>
                   <template x-for="(opt, i) in newQuiz.options" :key="i">
                     <div class="space-y-1.5">
@@ -2570,38 +1698,21 @@ function app() {
                         <span class="text-xs font-bold w-4" x-text="String.fromCharCode(65+i)"></span>
                         <input x-model="newQuiz.options[i]" class="input flex-1 text-sm" :placeholder="'Opsi ' + String.fromCharCode(65+i)">
                         <label class="text-slate-400 hover:text-sky-500 p-1.5 cursor-pointer bg-slate-100 dark:bg-slate-800 rounded-md hover:bg-sky-50 dark:hover:bg-sky-900/50 transition" :title="'Upload gambar opsi ' + String.fromCharCode(65+i)">
-                           <i data-lucide="image-plus" class="w-4 h-4"></i>
-                           <input type="file" accept="image/*" @change="handleOptionImageUpload($event, i)" class="hidden" :disabled="uploadingImage">
+                          <i data-lucide="image-plus" class="w-4 h-4"></i>
+                          <input type="file" accept="image/*" @change="handleOptionImageUpload($event, i)" class="hidden" :disabled="uploadingImage">
                         </label>
-                        <button @click="removeOption(i)" class="text-slate-400 hover:text-rose-500 p-1" title="Hapus opsi">
-                          <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                        </button>
+                        <button @click="removeOption(i)" class="text-slate-400 hover:text-rose-500 p-1" title="Hapus opsi"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
                       </div>
-                      <template x-if="newQuiz.option_images[i]">
-                        <div class="ml-8 flex items-center gap-2">
-                          <img :src="newQuiz.option_images[i]" class="max-h-16 rounded border border-slate-200 dark:border-slate-700" alt="" @error="$el.style.display='none'">
-                          <input type="url" x-model="newQuiz.option_images[i]" class="input text-[10px] flex-1 font-mono" placeholder="URL gambar">
-                          <button @click="removeOptionImage(i)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1 rounded">
-                            <i data-lucide="x" class="w-3 h-3"></i>
-                          </button>
-                        </div>
-                      </template>
                     </div>
                   </template>
-                  <button @click="addOption()" class="text-xs text-sky-600 dark:text-sky-400 font-semibold flex items-center gap-1">
-                    <i data-lucide="plus" class="w-3 h-3"></i> Tambah opsi
-                  </button>
+                  <button @click="addOption()" class="text-xs text-sky-600 dark:text-sky-400 font-semibold flex items-center gap-1"><i data-lucide="plus" class="w-3 h-3"></i> Tambah opsi</button>
                 </div>
 
-                <div><label class="label">Penjelasan</label><textarea x-model="newQuiz.explanation" rows="2" class="input text-sm"></textarea></div>
+                <div><label class="label">Kunci Jawaban / Penjelasan</label><textarea x-model="newQuiz.explanation" rows="2" class="input text-sm"></textarea></div>
                 <div class="flex gap-2 pt-2">
-                  <!-- Tombol Batal Edit (Hanya muncul saat mode edit) -->
                   <template x-if="editingQuizId">
-                    <button @click="cancelEditQuiz()" class="btn btn-ghost w-full text-rose-500">
-                      <i data-lucide="x" class="w-4 h-4"></i> Batal Edit
-                    </button>
+                    <button @click="cancelEditQuiz()" class="btn btn-ghost w-full text-rose-500"><i data-lucide="x" class="w-4 h-4"></i> Batal Edit</button>
                   </template>
-
                   <button @click="createQuiz()" class="btn btn-primary w-full" :disabled="uploadingImage">
                     <template x-if="uploadingImage"><i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i></template>
                     <template x-if="!uploadingImage"><i :data-lucide="editingQuizId ? 'save' : 'plus'" class="w-4 h-4"></i></template>
@@ -2620,18 +1731,9 @@ function app() {
           <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h3 class="font-bold flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-orange-400 animate-pulse"></span> Realtime Live Monitor</h3>
-              <p class="text-xs text-slate-500 mt-1" x-text="mode==='demo' ? 'Simulasi submission siswa (Demo Mode).' : 'Submission via Supabase Realtime.'"></p>
+              <p class="text-xs text-slate-500 mt-1">Setiap jawaban yang diklik siswa akan langsung muncul di sini.</p>
             </div>
-            <div class="flex gap-2 flex-wrap">
-              <template x-if="mode==='demo'">
-                <button @click="toggleSimulation()" class="btn btn-ghost btn-sm">
-                  <i :data-lucide="simRunning ? 'pause' : 'play'" class="w-3 h-3"></i>
-                  <span x-text="simRunning ? 'Pause' : 'Play'"></span>
-                </button>
-              </template>
-              <button @click="loadGuruData()" class="btn btn-ghost btn-sm"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh</button>
-              <div class="chip bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200"><i data-lucide="hash" class="w-3 h-3"></i><span x-text="submissions.length"></span></div>
-            </div>
+            <button @click="loadGuruData()" class="btn btn-ghost btn-sm"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh</button>
           </div>
         </div>
         <div class="card overflow-hidden">
@@ -2642,29 +1744,28 @@ function app() {
                   <th class="text-left px-4 py-3 font-bold">Siswa</th>
                   <th class="text-left px-4 py-3 font-bold">Kelas / Materi</th>
                   <th class="text-left px-4 py-3 font-bold">Soal</th>
-                  <th class="text-center px-4 py-3 font-bold">Hasil</th>
-                  <th class="text-right px-4 py-3 font-bold">Waktu</th>
+                  <th class="text-center px-4 py-3 font-bold">Jawaban Siswa</th>
                 </tr>
               </thead>
               <tbody>
-                <template x-for="s in submissions.slice(0,100)" :key="s.id">
+                <template x-for="s in submissions" :key="s.id">
                   <tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40">
                     <td class="px-4 py-3 font-semibold" x-text="s.profiles?.name || '—'"></td>
                     <td class="px-4 py-3">
                       <div class="text-xs text-slate-500" x-text="s.quizzes?.materials?.classes?.title || '—'"></div>
-                      <div class="text-xs font-semibold" x-text="s.quizzes?.materials?.title || '—'"></div>
                     </td>
-                    <td class="px-4 py-3 max-w-xs"><div class="truncate" x-text="s.quizzes?.question || '—'"></div></td>
-                    <td class="px-4 py-3 text-center">
-                      <span class="chip" :class="s.is_correct ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300'">
-                        <i :data-lucide="s.is_correct ? 'check' : 'x'" class="w-3 h-3"></i>
-                        <span x-text="s.is_correct ? 'Benar' : 'Salah'"></span>
-                      </span>
+                    <td class="px-4 py-3 max-w-xs">
+                      <div class="truncate" x-text="s.quizzes?.question || '—'"></div>
+                      <span class="chip" :class="s.quizzes?.type === 'essay' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'" x-text="s.quizzes?.type === 'essay' ? 'Esai' : 'PG'"></span>
                     </td>
-                    <td class="px-4 py-3 text-right text-xs text-slate-500" x-text="fmtDate(s.created_at)"></td>
+                    <td class="px-4 py-3 text-center font-semibold" :class="s.is_correct ? 'text-emerald-600' : 'text-slate-700 dark:text-slate-300'">
+                      <span x-text="s.quizzes?.type === 'essay' ? (s.answer_text || s.student_answer || '-') : s.student_answer"></span>
+                      <template x-if="s.quizzes?.type === 'pg'">
+                        <i :data-lucide="s.is_correct ? 'check' : 'x'" class="w-4 h-4 inline ml-1" :class="s.is_correct ? 'text-emerald-500' : 'text-rose-500'"></i>
+                      </template>
+                    </td>
                   </tr>
                 </template>
-                <template x-if="submissions.length===0"><tr><td colspan="5" class="text-center py-12 text-slate-400 italic">Belum ada submission.</td></tr></template>
               </tbody>
             </table>
           </div>
@@ -2674,18 +1775,16 @@ function app() {
       <!-- REPORTS -->
       <section x-show="tab==='reports'" class="space-y-5">
         <div class="card p-5">
-          <h3 class="font-bold mb-1 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4 text-sky-600 dark:text-sky-400"></i> Laporan & Export PDF</h3>
-          <p class="text-xs text-slate-500">Pilih kelas untuk export laporan resmi.</p>
+          <h3 class="font-bold mb-1 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4 text-sky-600 dark:text-sky-400"></i> Laporan Per Siswa</h3>
+          <p class="text-xs text-slate-500">Pilih kelas untuk mengunduh laporan PDF setiap siswa beserta jawabannya.</p>
         </div>
         <div class="grid md:grid-cols-2 gap-4">
           <template x-for="c in classes" :key="c.id">
             <div class="card p-4">
               <div class="font-bold mb-1" x-text="c.title"></div>
-              <div class="text-xs text-slate-500 mb-3">Kode: <span class="font-mono font-bold" x-text="c.class_code"></span></div>
-              <button @click="exportReportPDF(c.id)" class="btn btn-orange btn-sm w-full"><i data-lucide="download" class="w-3 h-3"></i> Export PDF</button>
+              <button @click="exportReportPDF(c.id)" class="btn btn-orange btn-sm w-full mt-3"><i data-lucide="download" class="w-3 h-3"></i> Download Laporan (PDF)</button>
             </div>
           </template>
-          <template x-if="classes.length===0"><div class="col-span-full card p-10 text-center text-slate-400 italic">Belum ada kelas.</div></template>
         </div>
       </section>
     </main>
@@ -2693,28 +1792,25 @@ function app() {
     <!-- SISWA DASHBOARD -->
     <main x-show="profile?.role==='siswa'" x-init="loadSiswaData()" class="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
       <div class="flex flex-wrap gap-2 mb-6">
-        <button @click="tab='materials'; loadSiswaData()" class="tab-btn" :class="tab==='materials'?'tab-active':'tab-inactive'"><i data-lucide="book-open" class="w-4 h-4"></i> Materi Aktif</button>
+        <button @click="tab='materials'; loadSiswaData()" class="tab-btn" :class="tab==='materials'?'tab-active':'tab-inactive'"><i data-lucide="book-open" class="w-4 h-4"></i> Materi & Tugas</button>
         <button @click="tab='join'; loadSiswaData()" class="tab-btn" :class="tab==='join'?'tab-active':'tab-inactive'"><i data-lucide="user-plus" class="w-4 h-4"></i> Kelas Saya</button>
       </div>
 
       <section x-show="tab==='materials'" class="space-y-5">
-        <div class="card p-5">
-          <h3 class="font-bold flex items-center gap-2"><i data-lucide="sparkles" class="w-4 h-4 text-orange-500"></i> Materi Belajar Aktif (<span x-text="materials.length"></span>)</h3>
-          <p class="text-xs text-slate-500 mt-1">Hanya materi yang diaktifkan guru.</p>
-        </div>
         <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           <template x-for="m in materials" :key="m.id">
-            <div @click="openMaterial(m)" class="card p-5 hover:shadow-xl hover:-translate-y-0.5 transition cursor-pointer">
+            <div @click="openMaterial(m)" class="card p-5 transition relative overflow-hidden" :class="m.is_active ? 'hover:shadow-xl hover:-translate-y-0.5 cursor-pointer' : 'opacity-80'">
               <div class="flex items-start justify-between gap-2 mb-3">
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-900 to-sky-500 flex items-center justify-center flex-shrink-0"><i data-lucide="file-text" class="w-5 h-5 text-white"></i></div>
-                <span class="chip bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">Aktif</span>
+                <span class="chip" :class="m.is_active ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'">
+                  <i :data-lucide="m.is_active ? 'unlock' : 'lock'" class="w-3 h-3"></i>
+                  <span x-text="m.is_active ? 'Terbuka' : 'Terkunci'"></span>
+                </span>
               </div>
               <div class="font-bold mb-1 line-clamp-2" x-text="m.title"></div>
-              <div class="text-xs text-slate-500 mb-1" x-text="m.classes?.title || '—'"></div>
-              <div class="text-[11px] text-slate-400 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i><span x-text="m.classes?.profiles?.name || 'Guru'"></span></div>
+              <div class="text-xs text-slate-500" x-text="m.classes?.title || '—'"></div>
             </div>
           </template>
-          <template x-if="materials.length===0"><div class="col-span-full card p-10 text-center text-slate-400 italic">Belum ada materi aktif.</div></template>
         </div>
       </section>
 
@@ -2725,22 +1821,6 @@ function app() {
             <input x-model="joinCode" @keydown.enter="joinClass()" class="input flex-1 font-mono uppercase tracking-widest" placeholder="XXXXXX" maxlength="6">
             <button @click="joinClass()" class="btn btn-primary"><i data-lucide="log-in" class="w-4 h-4"></i> Gabung</button>
           </div>
-          <p class="text-xs text-slate-500 mt-2">Coba kode demo: <b>MTK01</b>, <b>IPA02</b>, atau <b>BIG03</b></p>
-        </div>
-        <div>
-          <h3 class="font-bold mb-3">Kelas yang Diikuti</h3>
-          <div class="grid md:grid-cols-2 gap-4">
-            <template x-for="c in myClasses" :key="c.id">
-              <div class="card p-4 flex items-center gap-3">
-                <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-orange-400 flex items-center justify-center flex-shrink-0"><i data-lucide="school" class="w-5 h-5 text-white"></i></div>
-                <div class="flex-1 min-w-0">
-                  <div class="font-bold truncate" x-text="c.title"></div>
-                  <div class="text-xs text-slate-500">Guru: <span class="font-semibold" x-text="c.profiles?.name || '—'"></span> · <span class="font-mono" x-text="c.class_code"></span></div>
-                </div>
-              </div>
-            </template>
-            <template x-if="myClasses.length===0"><div class="col-span-full card p-10 text-center text-slate-400 italic">Belum join kelas apapun.</div></template>
-          </div>
         </div>
       </section>
     </main>
@@ -2750,9 +1830,7 @@ function app() {
       <div class="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden border border-sky-200/50 dark:border-sky-800/50">
         <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-sky-50 to-orange-50 dark:from-sky-950/60 dark:to-orange-950/30 flex items-start justify-between gap-3">
           <div class="flex-1 min-w-0">
-            <div class="text-[11px] uppercase tracking-wider font-bold text-sky-700 dark:text-sky-300" x-text="viewingMaterial?.classes?.title || '—'"></div>
             <h2 class="font-black text-xl leading-tight mt-0.5" x-text="viewingMaterial?.title"></h2>
-            <div class="text-xs text-slate-500 mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i><span x-text="viewingMaterial?.classes?.profiles?.name || 'Guru'"></span></div>
           </div>
           <button @click="closeMaterial()" class="text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-lg"><i data-lucide="x" class="w-4 h-4"></i></button>
         </div>
@@ -2761,8 +1839,8 @@ function app() {
 
           <div x-show="quizzes.length > 0" class="border-t border-slate-200 dark:border-slate-800 pt-5">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="font-black text-lg flex items-center gap-2"><i data-lucide="help-circle" class="w-5 h-5 text-orange-500"></i> Kuis <span class="text-sm font-normal text-slate-500">(<span x-text="quizzes.length"></span> soal)</span></h3>
-              <div x-show="quizSubmitted" class="chip bg-gradient-to-r from-orange-500 to-orange-400 text-white font-bold text-base px-3 py-1">Skor: <span x-text="score"></span></div>
+              <h3 class="font-black text-lg flex items-center gap-2"><i data-lucide="help-circle" class="w-5 h-5 text-orange-500"></i> Latihan Soal</h3>
+              <div x-show="quizSubmitted" class="chip bg-gradient-to-r from-orange-500 to-orange-400 text-white font-bold text-base px-3 py-1">Skor PG: <span x-text="score"></span></div>
             </div>
             <div class="space-y-5">
               <template x-for="(q,i) in quizzes" :key="q.id">
@@ -2774,124 +1852,48 @@ function app() {
                   <template x-if="q.question_image">
                     <img :src="q.question_image" class="max-h-64 rounded-lg border border-slate-200 dark:border-slate-700 mb-3" alt="" @error="$el.style.display='none'">
                   </template>
-                  <div class="space-y-2">
+                  
+                  <!-- TAMPILAN PG -->
+                  <div x-show="q.type !== 'essay'" class="space-y-2">
                     <template x-for="(opt, oi) in q.options" :key="oi">
                       <label class="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition border-2"
                              :class="{
                                'border-sky-500 bg-white dark:bg-slate-900': quizAnswers[q.id]===oi && !quizSubmitted,
                                'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-slate-300': quizAnswers[q.id]!==oi && !quizSubmitted,
                                'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40': quizSubmitted && oi===q.correct_option,
-                               'border-rose-400 bg-rose-50 dark:bg-rose-950/40': quizSubmitted && quizAnswers[q.id]===oi && oi!==q.correct_option,
-                               'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 opacity-60': quizSubmitted && quizAnswers[q.id]!==oi && oi!==q.correct_option
+                               'border-rose-400 bg-rose-50 dark:bg-rose-950/40': quizSubmitted && quizAnswers[q.id]===oi && oi!==q.correct_option
                              }">
-                        <input type="radio" :name="'q_'+q.id" :value="oi" x-model.number="quizAnswers[q.id]" :disabled="quizSubmitted" class="sr-only">
+                        <input type="radio" :name="'q_'+q.id" :value="oi" x-model.number="quizAnswers[q.id]" @change="liveSubmitPg(q.id, oi)" :disabled="quizSubmitted" class="sr-only">
                         <div class="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition"
                              :class="{
                                'border-sky-500 bg-sky-500': quizAnswers[q.id]===oi && !quizSubmitted,
-                               'border-slate-300': quizAnswers[q.id]!==oi && !quizSubmitted,
                                'border-emerald-500 bg-emerald-500': quizSubmitted && oi===q.correct_option,
                                'border-rose-500 bg-rose-500': quizSubmitted && quizAnswers[q.id]===oi && oi!==q.correct_option
                              }"><span class="text-[10px] font-bold text-white" x-text="String.fromCharCode(65+oi)"></span></div>
-                        <template x-if="q.option_images && q.option_images[oi]">
-                          <img :src="q.option_images[oi]" class="max-h-20 rounded border border-slate-200 dark:border-slate-700" alt="" @error="$el.style.display='none'">
-                        </template>
                         <span class="text-sm font-medium" x-text="opt"></span>
                       </label>
                     </template>
                   </div>
+
+                  <!-- TAMPILAN ESAI -->
+                  <div x-show="q.type === 'essay'" class="space-y-2">
+                    <textarea x-model="essayAnswers[q.id]" :disabled="quizSubmitted" rows="4" class="input text-sm" placeholder="Ketik jawaban uraian Anda di sini..."></textarea>
+                    <button x-show="!quizSubmitted" @click="saveEssay(q.id)" class="btn btn-ghost btn-sm text-sky-600 border border-sky-200">Simpan Jawaban Esai</button>
+                  </div>
+
                   <div x-show="quizSubmitted" class="mt-3 text-xs bg-white dark:bg-slate-900 rounded-lg p-3 border-l-4 border-sky-500">
-                    <div class="font-bold mb-1">💡 Penjelasan:</div>
+                    <div class="font-bold mb-1">💡 Kunci / Penjelasan:</div>
                     <div class="text-slate-600 dark:text-slate-400" x-text="q.explanation"></div>
                   </div>
                 </div>
               </template>
             </div>
             <div class="mt-5 flex gap-2 justify-end">
-              <button x-show="!quizSubmitted" @click="submitQuiz()" :disabled="submitting" class="btn btn-primary">
-                <template x-if="submitting"><i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i></template>
-                <template x-if="!submitting"><i data-lucide="send" class="w-4 h-4"></i></template>
-                Kirim Jawaban
-              </button>
-              <button x-show="quizSubmitted" @click="closeMaterial()" class="btn btn-orange"><i data-lucide="check" class="w-4 h-4"></i> Selesai</button>
+              <button x-show="!quizSubmitted" @click="submitQuiz()" :disabled="submitting" class="btn btn-primary">Selesai & Kirim Jawaban</button>
+              <button x-show="quizSubmitted" @click="printStudentResult()" class="btn btn-ghost text-sky-600 border border-sky-200 dark:border-sky-800"><i data-lucide="printer" class="w-4 h-4"></i> Cetak Hasil</button>
+              <button x-show="quizSubmitted" @click="closeMaterial()" class="btn btn-orange"><i data-lucide="check" class="w-4 h-4"></i> Tutup</button>
             </div>
           </div>
-          <div x-show="quizzes.length===0" class="text-center py-8 text-slate-400 italic text-sm border-t border-slate-200 dark:border-slate-800 pt-6">
-            Materi ini belum memiliki soal kuis.
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- EXCEL IMPORT MODAL -->
-    <div x-show="excelImportOpen" x-transition.opacity class="modal-bg" @click.self="closeExcelImport()" @keydown.escape.window="closeExcelImport()">
-      <div class="w-full max-w-4xl max-h-[92vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-orange-200/50 dark:border-orange-800/50">
-        <div class="px-6 py-4 bg-gradient-to-r from-orange-500 to-orange-400 text-white flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center"><i data-lucide="file-spreadsheet" class="w-5 h-5"></i></div>
-          <div class="flex-1 min-w-0">
-            <div class="font-bold text-lg">Import Soal dari Excel</div>
-            <div class="text-xs text-orange-100 truncate" x-text="excelFileName || 'Preview'"></div>
-          </div>
-          <button @click="closeExcelImport()" class="text-white/90 hover:bg-white/20 p-2 rounded-lg"><i data-lucide="x" class="w-4 h-4"></i></button>
-        </div>
-        <div class="flex-1 overflow-auto p-5">
-          <div class="flex flex-wrap gap-3 mb-4">
-            <div class="chip bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
-              <i data-lucide="check-circle" class="w-3 h-3"></i>
-              <span x-text="excelPreview.filter(r => r._valid).length"></span> soal valid
-            </div>
-            <template x-if="excelPreview.filter(r => !r._valid).length">
-              <div class="chip bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300">
-                <i data-lucide="alert-circle" class="w-3 h-3"></i>
-                <span x-text="excelPreview.filter(r => !r._valid).length"></span> baris invalid
-              </div>
-            </template>
-          </div>
-          <div class="space-y-3">
-            <template x-for="(row, i) in excelPreview" :key="i">
-              <div class="rounded-xl border p-4"
-                   :class="row._valid ? 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40' : 'border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 opacity-70'">
-                <div class="flex items-start gap-3">
-                  <span class="chip flex-shrink-0"
-                        :class="row._valid ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200' : 'bg-rose-100 text-rose-700'"
-                        x-text="'#' + (i+1)"></span>
-                  <div class="flex-1 min-w-0">
-                    <div class="text-sm font-bold mb-2" x-text="row.question"></div>
-                    <template x-if="row.question_image">
-                      <div class="mb-2">
-                        <img :src="row.question_image" class="max-h-24 rounded border border-slate-200 dark:border-slate-700" alt="" @error="$el.style.display='none'">
-                        <div class="text-[10px] text-slate-500 mt-1 truncate" x-text="row.question_image"></div>
-                      </div>
-                    </template>
-                    <div class="space-y-1">
-                      <template x-for="(opt, oi) in row.options" :key="oi">
-                        <div class="flex items-center gap-2 text-xs"
-                             :class="oi === row.correct_option ? 'font-bold text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'">
-                          <span class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px]"
-                                :class="oi === row.correct_option ? 'bg-emerald-100 dark:bg-emerald-900/60' : 'bg-slate-200 dark:bg-slate-700'"
-                                x-text="String.fromCharCode(65+oi)"></span>
-                          <template x-if="row.option_images[oi]">
-                            <img :src="row.option_images[oi]" class="h-8 rounded border border-slate-200 dark:border-slate-700" alt="" @error="$el.style.display='none'">
-                          </template>
-                          <span x-text="opt"></span>
-                        </div>
-                      </template>
-                    </div>
-                    <div class="text-[11px] italic text-slate-500 mt-2" x-text="'💡 ' + (row.explanation || '-')"></div>
-                    <template x-if="!row._valid">
-                      <div class="text-xs text-rose-600 dark:text-rose-400 mt-1 font-bold" x-text="'⚠ ' + row._error"></div>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-        <div class="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex gap-2 justify-end bg-slate-50 dark:bg-slate-900/60">
-          <button @click="closeExcelImport()" class="btn btn-ghost">Batal</button>
-          <button @click="confirmExcelImport()" class="btn btn-primary" :disabled="!excelPreview.filter(r => r._valid).length">
-            <i data-lucide="check" class="w-4 h-4"></i>
-            Import <span x-text="excelPreview.filter(r => r._valid).length"></span> Soal
-          </button>
         </div>
       </div>
     </div>
