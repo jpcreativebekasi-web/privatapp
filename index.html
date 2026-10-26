@@ -1332,7 +1332,7 @@ function app() {
     async callAI(prompt) {
       if (!this.cfg.aiKey) throw new Error('AI API Key belum diisi. Buka menu Settings (ikon gerigi).');
       if (this.cfg.aiProvider === 'gemini') {
-        const model = this.cfg.aiModel || 'gemini-1.5-flash'; 
+        const model = this.cfg.aiModel || 'gemini-3.5-flash'; 
         const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(this.cfg.aiKey);
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
         const j = await res.json();
@@ -1423,7 +1423,7 @@ function app() {
       </div>
       <div>
         <label class="label">Model (opsional)</label>
-        <input x-model="cfgDraft.aiModel" class="input" :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-1.5-flash' : 'qwen/qwen3.8-27b'">
+        <input x-model="cfgDraft.aiModel" class="input" :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-3.5-flash' : 'qwen/qwen3.8-27b'">
       </div>
       <div>
         <label class="label">AI API Key</label>
