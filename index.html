@@ -1359,7 +1359,44 @@ function app() {
       } catch (e) { this.toast('AI error: ' + e.message, 'error'); }
       finally { this.aiMaterial.loading = false; }
     },
-    resetAllConfig() {
+        async aiGenerateQuiz() {
+      if (!this.selectedMaterialId) return this.toast('Pilih materi dulu.', 'error');
+      if (!this.aiQuiz.topic.trim()) return this.toast('Isi topik soal.', 'error');
+      this.aiQuiz.loading = true;
+      try {
+        const n = Math.max(1, Math.min(10, parseInt(this.aiQuiz.count) || 3));
+        const prompt = 'Buat ' + n + ' soal pilihan ganda Bahasa Indonesia tentang topik: "' + this.aiQuiz.topic + '". Kembalikan HANYA JSON array valid (tanpa code fence): [{"question":"...","options":["...","...","...","..."],"correct_option":0,"explanation":"..."}]';
+        const aiText = await this.callAI(prompt);
+        
+        // Bersihkan format markdown code block jika ada
+        let cleanText = aiText.trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+        const arr = JSON.parse(cleanText);
+        
+        if (!Array.isArray(arr) || !arr.length) throw new Error('AI tidak mengembalikan array soal.');
+        
+        let inserted = 0;
+        for (const q of arr) {
+          await this.dbInsert('quizzes', {
+            material_id: this.selectedMaterialId, 
+            guru_id: this.profile.id,
+            type: 'pg',
+            question: String(q.question||'').trim(),
+            question_image: '',
+            options: (q.options||[]).map(o => String(o).trim()),
+            option_images: (q.options||[]).map(()=>''),
+            correct_option: Math.max(0, Math.min((q.options||[]).length-1, parseInt(q.correct_option)||0)),
+            explanation: String(q.explanation||'').trim() || '-'
+          });
+          inserted++;
+        }
+        
+        this.quizzes = await this.fetchQuizzesForMaterial(this.selectedMaterialId);
+        this.aiQuiz.topic = '';
+        this.toast(inserted + ' soal berhasil dibuat oleh AI.', 'success');
+      } catch (e) { this.toast('AI error: ' + e.message, 'error'); }
+      finally { this.aiQuiz.loading = false; }
+    },
+	resetAllConfig() {
       if (!confirm('Reset semua konfigurasi & logout?')) return;
       try {
         ['ll_sb_url','ll_sb_key','ll_ai_provider','ll_ai_key','ll_ai_model'].forEach(k => localStorage.removeItem(k));
@@ -1717,7 +1754,19 @@ function app() {
 
             <div class="space-y-4">
               <div id="quiz-form" class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
-                <div class="flex items-center justify-between gap-2 flex-wrap">
+                                <div class="rounded-xl border border-orange-200 dark:border-orange-800/60 bg-gradient-to-br from-orange-50 to-white dark:from-orange-950/40 dark:to-slate-900/40 p-3 mb-4">
+                  <label class="label text-orange-700 dark:text-orange-400">✨ Generate Soal dengan AI</label>
+                  <div class="grid grid-cols-3 gap-2 mb-2">
+                    <input x-model="aiQuiz.topic" class="input col-span-2 text-sm" placeholder="Topik soal (contoh: Fotosintesis)">
+                    <input x-model.number="aiQuiz.count" type="number" min="1" max="10" class="input text-sm" placeholder="Jml">
+                  </div>
+                  <button @click="aiGenerateQuiz()" :disabled="aiQuiz.loading" class="btn btn-orange btn-sm w-full">
+                    <template x-if="aiQuiz.loading"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></template>
+                    <template x-if="!aiQuiz.loading"><i data-lucide="sparkles" class="w-3 h-3"></i></template>
+                    Generate <span x-text="aiQuiz.count"></span> Soal
+                  </button>
+                </div>
+				<div class="flex items-center justify-between gap-2 flex-wrap">
                   <div class="text-xs font-bold text-slate-500 uppercase">Tambah Manual</div>
                   <div class="flex gap-1.5">
                     <button @click="downloadExcelTemplate()" class="btn btn-ghost btn-sm" title="Download template Excel"><i data-lucide="file-spreadsheet" class="w-3 h-3"></i> Template</button>
