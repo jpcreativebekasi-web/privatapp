@@ -1770,7 +1770,8 @@ function app() {
                           <i :data-lucide="m.is_active ? 'unlock' : 'lock'" class="w-3 h-3"></i>
                           <span x-text="m.is_active ? 'Terbuka' : 'Terkunci'"></span>
                         </button>
-                        <button @click.stop="editMaterial(m)" class="text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-950/50 p-1.5 rounded-lg" title="Edit Materi"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+                        <button @click.stop="downloadGuruMaterial(m)" class="text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 p-1.5 rounded-lg" title="Download Materi (PDF)"><i data-lucide="download" class="w-3.5 h-3.5"></i></button>
+						<button @click.stop="editMaterial(m)" class="text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-950/50 p-1.5 rounded-lg" title="Edit Materi"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
                         <button @click.stop="deleteMaterial(m.id)" class="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-lg"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                       </div>
                     </div>
