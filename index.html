@@ -177,7 +177,7 @@ function app() {
     configHardcoded: false,
 
     configOpen: false,
-    cfg: { supabaseUrl:'', supabaseKey:'', aiProvider:'gemini', aiKey:'', aiModel:'' },
+        cfg: { supabaseUrl:'', supabaseKey:'', aiProvider:'gemini', geminiKey:'', geminiModel:'gemini-3.5-flash', groqKey:'', groqModel:'qwen/qwen3.8-27b' },
     cfgDraft: {},
 
     sb: null,
@@ -253,8 +253,10 @@ function app() {
         this.cfg.supabaseUrl = localStorage.getItem('ll_sb_url') || '';
         this.cfg.supabaseKey = localStorage.getItem('ll_sb_key') || '';
         this.cfg.aiProvider  = localStorage.getItem('ll_ai_provider') || 'gemini';
-        this.cfg.aiKey       = localStorage.getItem('ll_ai_key') || '';
-        this.cfg.aiModel     = localStorage.getItem('ll_ai_model') || '';
+        this.cfg.geminiKey   = localStorage.getItem('ll_gemini_key') || '';
+        this.cfg.geminiModel = localStorage.getItem('ll_gemini_model') || 'gemini-1.5-flash';
+        this.cfg.groqKey     = localStorage.getItem('ll_groq_key') || '';
+        this.cfg.groqModel   = localStorage.getItem('ll_groq_model') || 'qwen/qwen3.8-27b';
 
         if (hardUrl && hardKey) {
           this.cfg.supabaseUrl = hardUrl;
@@ -550,33 +552,18 @@ function app() {
       this.configOpen = true;
       this.$nextTick(() => this.icons());
     },
-    saveConfig() {
-     if (this.configHardcoded) {
-    try {
-      localStorage.setItem('ll_ai_provider', this.cfgDraft.aiProvider || 'gemini');
-      localStorage.setItem('ll_ai_key', (this.cfgDraft.aiKey || '').trim());
-      localStorage.setItem('ll_ai_model', (this.cfgDraft.aiModel || '').trim());
-    } catch(e){}
-    this.cfg.aiProvider = this.cfgDraft.aiProvider;
-    this.cfg.aiKey = this.cfgDraft.aiKey;
-    this.cfg.aiModel = this.cfgDraft.aiModel;
-    this.configOpen = false;
-    this.toast('AI Key tersimpan.', 'success');
-    return;
-  }
-  if (!this.cfgDraft.supabaseUrl || !this.cfgDraft.supabaseKey) return this.toast('URL & Anon Key wajib diisi.', 'error');
-  try {
-    localStorage.setItem('ll_sb_url', this.cfgDraft.supabaseUrl.trim());
-    localStorage.setItem('ll_sb_key', this.cfgDraft.supabaseKey.trim());
-    localStorage.setItem('ll_ai_provider', this.cfgDraft.aiProvider || 'gemini');
-    localStorage.setItem('ll_ai_key', (this.cfgDraft.aiKey || '').trim());
-    localStorage.setItem('ll_ai_model', (this.cfgDraft.aiModel || '').trim());
-  } catch(e){}
-  this.cfg = { ...this.cfgDraft };
-  this.configOpen = false;
-  this.toast('Konfigurasi tersimpan.', 'success');
-  if (this.mode === 'cloud') { this.booting = true; this.initCloud(); }
-},
+        saveConfig() {
+      try {
+        localStorage.setItem('ll_ai_provider', this.cfgDraft.aiProvider);
+        localStorage.setItem('ll_gemini_key', (this.cfgDraft.geminiKey || '').trim());
+        localStorage.setItem('ll_gemini_model', (this.cfgDraft.geminiModel || '').trim());
+        localStorage.setItem('ll_groq_key', (this.cfgDraft.groqKey || '').trim());
+        localStorage.setItem('ll_groq_model', (this.cfgDraft.groqModel || '').trim());
+      } catch(e){}
+      this.cfg = { ...this.cfgDraft };
+      this.configOpen = false;
+      this.toast('Konfigurasi AI tersimpan.', 'success');
+    },
     resetAllConfig() {
       if (!confirm('Reset semua konfigurasi & logout?')) return;
       try {
@@ -1242,6 +1229,43 @@ function app() {
       finally { this.submitting = false; }
     },
 
+    async downloadMaterialPDF() {
+      if (!this.viewingMaterial) return;
+      if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
+      
+      // Buat elemen HTML sementara untuk dirender ke PDF
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `
+        <div style="font-family:Inter,sans-serif; padding:28px; color:#0f172a;">
+          <div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px;">
+            <div style="font-size:24px; font-weight:900; color:#0284c7;">LiveLearn</div>
+            <div style="font-size:14px; color:#64748b;">Handout Materi Pembelajaran</div>
+          </div>
+          <h2 style="font-size:20px; margin-bottom:5px;">${this.viewingMaterial.title}</h2>
+          <div style="font-size:12px; color:#64748b; margin-bottom:20px;">
+            Kelas: ${this.viewingMaterial.classes?.title || '-'} <br>
+            Guru: ${this.viewingMaterial.classes?.profiles?.name || '-'}
+          </div>
+          <div style="line-height:1.6; font-size:14px;">
+            ${marked.parse(this.viewingMaterial.content || '')}
+          </div>
+        </div>
+      `;
+
+      try {
+        await html2pdf().set({
+          margin: 0,
+          filename: 'Materi_' + this.viewingMaterial.title + '.pdf',
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        }).from(wrap).save();
+        this.toast('Materi berhasil diunduh sebagai PDF.', 'success');
+      } catch (e) {
+        this.toast('Gagal mengunduh PDF: ' + e.message, 'error');
+      }
+    },
+	
     async printStudentResult() {
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
       let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
@@ -1329,24 +1353,28 @@ function app() {
     },
 
     // FITUR AI
-    async callAI(prompt) {
-      if (!this.cfg.aiKey) throw new Error('AI API Key belum diisi. Buka menu Settings (ikon gerigi).');
+        async callAI(prompt) {
       if (this.cfg.aiProvider === 'gemini') {
-        const model = this.cfg.aiModel || 'gemini-3.5-flash'; 
-        const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(this.cfg.aiKey);
+        if (!this.cfg.geminiKey) throw new Error('Gemini API Key belum diisi di Settings.');
+        const model = this.cfg.geminiModel || 'gemini-1.5-flash'; 
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(this.cfg.geminiKey);
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
         const j = await res.json();
         if (!res.ok) throw new Error(j?.error?.message || 'Gemini error');
         return j?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+      } 
+      
+      if (this.cfg.aiProvider === 'groq') {
+        if (!this.cfg.groqKey) throw new Error('Groq API Key belum diisi di Settings.');
+        const model = this.cfg.groqModel || 'qwen/qwen3.8-27b'; 
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.cfg.groqKey },
+          body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.7 })
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j?.error?.message || 'Groq error');
+        return j?.choices?.[0]?.message?.content || '';
       }
-      const model = this.cfg.aiModel || 'qwen/qwen3.8-27b'; 
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.cfg.aiKey },
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.7 })
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.error?.message || 'Groq error');
-      return j?.choices?.[0]?.message?.content || '';
     },
     async aiGenerateMaterial() {
       if (!this.aiMaterial.topic.trim()) return this.toast('Isi topik materi.', 'error');
@@ -1451,23 +1479,44 @@ function app() {
       <div class="font-bold text-lg">Pengaturan & AI Provider</div>
     </div>
     <div class="p-6 space-y-4">
+      <!-- Pilihan Provider -->
       <div>
-        <label class="label">AI Provider</label>
-        <select x-model="cfgDraft.aiProvider" class="input">
+        <label class="label">Pilih AI Provider Aktif</label>
+        <select x-model="cfgDraft.aiProvider" class="input font-bold">
           <option value="gemini">Google Gemini</option>
           <option value="groq">Groq</option>
         </select>
       </div>
-      <div>
-        <label class="label">Model (opsional)</label>
-        <input x-model="cfgDraft.aiModel" class="input" :placeholder="cfgDraft.aiProvider==='gemini' ? 'gemini-3.5-flash' : 'qwen/qwen3.8-27b'">
+
+      <!-- Form Gemini -->
+      <div class="p-4 rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50/50 dark:bg-sky-950/20 space-y-3">
+        <div class="font-bold text-sky-700 dark:text-sky-400 flex items-center gap-2"><i data-lucide="sparkles" class="w-4 h-4"></i> Pengaturan Gemini</div>
+        <div>
+          <label class="label">Gemini API Key</label>
+          <input x-model="cfgDraft.geminiKey" type="password" class="input font-mono text-xs" placeholder="AIzaSy...">
+        </div>
+        <div>
+          <label class="label">Gemini Model</label>
+          <input x-model="cfgDraft.geminiModel" class="input text-xs font-mono" placeholder="gemini-1.5-flash">
+        </div>
       </div>
-      <div>
-        <label class="label">AI API Key</label>
-        <input x-model="cfgDraft.aiKey" type="password" class="input font-mono text-xs" placeholder="AIza... (Gemini)">
+
+      <!-- Form Groq -->
+      <div class="p-4 rounded-xl border border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20 space-y-3">
+        <div class="font-bold text-orange-700 dark:text-orange-400 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Pengaturan Groq</div>
+        <div>
+          <label class="label">Groq API Key</label>
+          <input x-model="cfgDraft.groqKey" type="password" class="input font-mono text-xs" placeholder="gsk_...">
+        </div>
+        <div>
+          <label class="label">Groq Model (Playground)</label>
+          <input x-model="cfgDraft.groqModel" class="input text-xs font-mono" placeholder="qwen/qwen3.8-27b">
+          <p class="text-[10px] text-slate-500 mt-1">Copy paste nama model dari Groq Playground (contoh: qwen/qwen3.8-27b)</p>
+        </div>
       </div>
+
       <div class="flex gap-2 pt-2">
-        <button @click="saveConfig()" class="btn btn-primary flex-1"><i data-lucide="save" class="w-4 h-4"></i> Simpan</button>
+        <button @click="saveConfig()" class="btn btn-primary flex-1"><i data-lucide="save" class="w-4 h-4"></i> Simpan Pengaturan</button>
         <button @click="configOpen=false" class="btn btn-ghost">Tutup</button>
       </div>
     </div>
@@ -1948,11 +1997,17 @@ function app() {
     <!-- MATERIAL DETAIL MODAL (SISWA) -->
     <div x-show="viewingMaterial" x-transition.opacity class="modal-bg" @click.self="closeMaterial()" @keydown.escape.window="closeMaterial()">
       <div class="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden border border-sky-200/50 dark:border-sky-800/50">
-        <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-sky-50 to-orange-50 dark:from-sky-950/60 dark:to-orange-950/30 flex items-start justify-between gap-3">
+                <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-sky-50 to-orange-50 dark:from-sky-950/60 dark:to-orange-950/30 flex items-start justify-between gap-3">
           <div class="flex-1 min-w-0">
             <h2 class="font-black text-xl leading-tight mt-0.5" x-text="viewingMaterial?.title"></h2>
           </div>
-          <button @click="closeMaterial()" class="text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-lg"><i data-lucide="x" class="w-4 h-4"></i></button>
+          <div class="flex items-center gap-2">
+            <!-- TOMBOL DOWNLOAD PDF -->
+            <button @click="downloadMaterialPDF()" class="btn btn-ghost btn-sm text-sky-600 dark:text-sky-400" title="Simpan sebagai PDF">
+              <i data-lucide="download" class="w-4 h-4"></i> Simpan PDF
+            </button>
+            <button @click="closeMaterial()" class="text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-lg"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
         </div>
         <div class="flex-1 overflow-auto p-6 space-y-6">
           <article class="prose-render text-sm max-w-none" x-html="renderMD(viewingMaterial?.content || '')"></article>
