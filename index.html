@@ -854,7 +854,8 @@ function app() {
       const ids = (myQz||[]).map(q => q.id);
       if (!ids.length) return [];
       const { data, error } = await this.sb.from('quiz_submissions')
-        .select('*, profiles:siswa_id(name), quizzes:quiz_id(question, material_id, type, materials:material_id(title, class_id, classes:class_id(title)))')
+        // TAMBAHKAN id di dalam materials:material_id(...)
+        .select('*, profiles:siswa_id(name), quizzes:quiz_id(question, material_id, type, materials:material_id(id, title, class_id, classes:class_id(title)))')
         .in('quiz_id', ids).order('created_at', { ascending: false }).limit(300);
       if (error) throw error;
       return data || [];
@@ -2027,6 +2028,7 @@ function app() {
         </div>
 
         <!-- 3. DETAIL LAPORAN SISWA (Muncul setelah siswa diklik) -->
+                <!-- 3. DETAIL LAPORAN SISWA -->
         <div x-show="selectedReportStudentId" class="card p-5 space-y-4">
           <h4 class="font-bold text-lg">Rekap Nilai: <span x-text="membersOf(selectedReportClassId).find(m => m.siswa_id === selectedReportStudentId)?.profiles?.name || 'Siswa'"></span></h4>
           
@@ -2040,36 +2042,28 @@ function app() {
                 </tr>
               </thead>
               <tbody>
-                <!-- Looping per Materi, bukan per soal -->
-                <template x-for="mat in [...new Set(submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).map(s => s.quizzes?.materials?.id))]" :key="mat">
-                  <template x-if="mat">
-                    <tr class="border-t border-slate-200 dark:border-slate-800">
-                      <!-- Ambil Judul Materi -->
-                      <td class="px-4 py-3 font-semibold" x-text="submissions.find(s => s.quizzes?.materials?.id === mat)?.quizzes?.materials?.title || 'Materi'"></td>
-                      
-                      <!-- Hitung Skor Materi Tersebut -->
-                      <td class="px-4 py-3 text-center">
-                        <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'pg').length > 0">
-                          <span class="font-bold text-emerald-600">
-                            <span x-text="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.is_correct).length"></span> / 
-                            <span x-text="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'pg').length"></span> Benar
-                          </span>
-                        </template>
-                        <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'essay').length > 0">
-                          <div class="text-xs text-orange-500 font-bold mt-1">Ada Soal Esai</div>
-                        </template>
-                      </td>
+                <!-- Looping langsung berdasarkan data submission yang ada -->
+                <template x-for="sub in submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId)" :key="sub.id">
+                  <tr class="border-t border-slate-200 dark:border-slate-800">
+                    <!-- Tampilkan Judul Materi -->
+                    <td class="px-4 py-3 font-semibold" x-text="sub.quizzes?.materials?.title || 'Materi Tanpa Judul'"></td>
+                    
+                    <!-- Skor per Jawaban -->
+                    <td class="px-4 py-3 text-center">
+                      <span x-show="sub.quizzes?.type === 'pg'" class="font-bold" :class="sub.is_correct ? 'text-emerald-600' : 'text-rose-600'" x-text="sub.is_correct ? 'Benar' : 'Salah'"></span>
+                      <span x-show="sub.quizzes?.type === 'essay'" class="text-xs text-orange-500 font-bold">Esai (Perlu Dinilai)</span>
+                    </td>
 
-                      <!-- Tombol Unduh Per Topik -->
-                      <td class="px-4 py-3 text-center">
-                        <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId, mat)" class="btn btn-orange btn-sm">
-                          <i data-lucide="download" class="w-3 h-3"></i> Unduh PDF
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
+                    <!-- Tombol Unduh, kirim classId, siswaId, dan MATERI ID (dari sub.quizzes.material_id) -->
+                    <td class="px-4 py-3 text-center">
+                      <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId, sub.quizzes.material_id)" class="btn btn-orange btn-sm">
+                        <i data-lucide="download" class="w-3 h-3"></i> Unduh PDF
+                      </button>
+                    </td>
+                  </tr>
                 </template>
                 
+                <!-- Jika Kosong -->
                 <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).length === 0">
                   <tr><td colspan="3" class="text-center py-8 text-slate-400 italic">Siswa ini belum mengerjakan soal apapun di kelas ini.</td></tr>
                 </template>
