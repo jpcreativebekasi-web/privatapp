@@ -1407,17 +1407,23 @@ function app() {
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       
+            const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      
       // Tampilkan efek loading
       this.toast('Sedang membuat PDF...', 'info');
       
+      // PENGAMAN: Pastikan nama file valid
+      const safeName = namaSiswa ? String(namaSiswa).replace(/\s+/g, '_') : 'Siswa';
+      
       try {
         await html2pdf().set({
-          margin: 10, filename: 'Laporan_' + namaSiswa.replace(/\s+/g, '_') + '.pdf',
+          margin: 10, filename: 'Laporan_' + safeName + '.pdf',
           image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2, useCORS:true }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
         }).from(wrap).save();
         this.toast('Laporan PDF berhasil diunduh.', 'success');
       } catch (e) { 
-        console.error(e);
+        console.error("PDF Error: ", e);
         this.toast('Gagal buat PDF: ' + e.message, 'error'); 
       }
     },
