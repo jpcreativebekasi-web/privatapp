@@ -890,7 +890,7 @@ function app() {
       quizzes: { ...q, materials: { ...m, classes: c } }
     };
   });
-}
+},
 
     async loadGuruData() {
       try {
@@ -1318,41 +1318,54 @@ function app() {
     },
 	
     async printStudentResult() {
-      if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
-      let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
-      html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
-      html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Hasil Tes</div>';
-      html += '<div style="font-size:14px; margin-top:5px;">Nama: <b>' + this.profile.name + '</b> | Kelas: ' + this.viewingMaterial.classes.title + '</div>';
-      html += '<div style="font-size:14px;">Materi: <b>' + this.viewingMaterial.title + '</b> | Skor PG: <b style="color:#ea580c;font-size:18px;">' + this.score + '</b></div>';
-      html += '</div>';
+  if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
+  try {
+    const namaSiswa = this.profile?.name || 'Siswa';
+    const namaKelas = this.viewingMaterial?.classes?.title || '-';
+    const judulMateri = this.viewingMaterial?.title || 'Materi';
 
-      for (let i = 0; i < this.quizzes.length; i++) {
-        const q = this.quizzes[i];
-        const userAns = this.quizAnswers[q.id];
-        const userEssay = this.essayAnswers[q.id];
-        const isCorrect = q.type === 'pg' ? (userAns === q.correct_option) : null;
-        
-        html += '<div style="margin-bottom:15px; padding:12px; border:1px solid #cbd5e1; border-radius:8px; background:' + (isCorrect === true ? '#f0fdf4' : isCorrect === false ? '#fef2f2' : '#f8fafc') + '">';
-        html += '<div style="font-weight:bold; margin-bottom:8px;">' + (i+1) + '. ' + q.question + ' <span style="font-size:10px; color:#64748b; font-weight:normal;">(' + (q.type === 'pg' ? 'Pilihan Ganda' : 'Uraian') + ')</span></div>';
-        
-        if (q.type === 'pg') {
-          html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <b>' + (userAns !== undefined ? q.options[userAns] : 'Tidak dijawab') + '</b></div>';
-          if (!isCorrect) html += '<div style="font-size:12px; color:#059669;">Jawaban Benar: <b>' + q.options[q.correct_option] + '</b></div>';
-        } else {
-          html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <i>' + (userEssay || 'Tidak dijawab') + '</i></div>';
-          html += '<div style="font-size:12px; color:#059669;">Kunci: <i>' + q.explanation + '</i></div>';
-        }
-        html += '</div>';
+    let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
+    html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
+    html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Hasil Tes</div>';
+    html += '<div style="font-size:14px; margin-top:5px;">Nama: <b>' + namaSiswa + '</b> | Kelas: ' + namaKelas + '</div>';
+    html += '<div style="font-size:14px;">Materi: <b>' + judulMateri + '</b> | Skor PG: <b style="color:#ea580c;font-size:18px;">' + (this.score || 0) + '</b></div>';
+    html += '</div>';
+
+    for (let i = 0; i < this.quizzes.length; i++) {
+      const q = this.quizzes[i];
+      const userAns = this.quizAnswers[q.id];
+      const userEssay = this.essayAnswers[q.id];
+      const isCorrect = q.type === 'pg' ? (userAns === q.correct_option) : null;
+
+      html += '<div style="margin-bottom:15px; padding:12px; border:1px solid #cbd5e1; border-radius:8px; background:' + (isCorrect === true ? '#f0fdf4' : isCorrect === false ? '#fef2f2' : '#f8fafc') + '">';
+      html += '<div style="font-weight:bold; margin-bottom:8px;">' + (i+1) + '. ' + (q.question || '-') + ' <span style="font-size:10px; color:#64748b; font-weight:normal;">(' + (q.type === 'pg' ? 'Pilihan Ganda' : 'Uraian') + ')</span></div>';
+
+      if (q.type === 'pg') {
+        const opts = Array.isArray(q.options) ? q.options : [];
+        const userText = (Number.isInteger(userAns) && opts[userAns] !== undefined) ? opts[userAns] : 'Tidak dijawab';
+        const correctText = opts[q.correct_option] !== undefined ? opts[q.correct_option] : '-';
+        html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <b>' + userText + '</b></div>';
+        if (!isCorrect) html += '<div style="font-size:12px; color:#059669;">Jawaban Benar: <b>' + correctText + '</b></div>';
+      } else {
+        html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <i>' + (userEssay || 'Tidak dijawab') + '</i></div>';
+        html += '<div style="font-size:12px; color:#059669;">Kunci: <i>' + (q.explanation || '-') + '</i></div>';
       }
       html += '</div>';
+    }
+    html += '</div>';
 
-      const wrap = document.createElement('div');
-      wrap.innerHTML = html;
-      await html2pdf().set({
-        margin: 0, filename: 'Hasil_Tes_' + this.profile.name + '.pdf',
-        image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2 }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
-      }).from(wrap).save();
-    },
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    await html2pdf().set({
+      margin: 0, filename: 'Hasil_Tes_' + namaSiswa + '.pdf',
+      image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2 }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
+    }).from(wrap).save();
+    this.toast('Hasil tes berhasil diunduh.', 'success');
+  } catch (e) {
+    console.error('PDF Error:', e);
+    this.toast('Gagal buat PDF: ' + e.message, 'error');
+  }
+},
 
             async exportReportPDF(classId, siswaId, matId) {
   if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
