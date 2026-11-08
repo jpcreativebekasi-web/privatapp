@@ -1328,85 +1328,76 @@ function app() {
       }).from(wrap).save();
     },
 
-    async exportReportPDF() {
+        async exportReportPDF(classId, siswaId, matId) {
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
-      
-      const classId = this.selectedReportClassId;
-      const siswaId = this.selectedReportStudentId;
-      
-      if (!classId || !siswaId) return this.toast('Pilih kelas dan siswa terlebih dahulu.', 'error');
+      if (!classId || !siswaId || !matId) return this.toast('Data tidak lengkap untuk membuat laporan.', 'error');
 
       const cls = this.classes.find(c => c.id === classId);
       const member = this.membersByClass[classId]?.find(m => m.siswa_id === siswaId);
       const namaSiswa = member?.profiles?.name || 'Siswa';
+      
+      // Ambil hanya data untuk materi yang dipilih
+      const studentSubs = this.submissions.filter(s => 
+        s.siswa_id === siswaId && 
+        s.quizzes?.materials?.id === matId
+      );
 
-      const studentSubs = this.submissions.filter(s => s.siswa_id === siswaId && s.quizzes?.materials?.class_id === classId);
+      const matTitle = studentSubs[0]?.quizzes?.materials?.title || 'Materi';
 
       let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
       html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
       html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Laporan Hasil Belajar</div>';
       html += '<div style="font-size:14px; margin-top:5px;">Nama Siswa: <b>' + namaSiswa + '</b></div>';
-      html += '<div style="font-size:14px;">Kelas: <b>' + (cls?.title || '-') + '</b> | Kode: ' + (cls?.class_code || '-') + '</div>';
+      html += '<div style="font-size:14px;">Kelas: <b>' + (cls?.title || '-') + '</b> | Topik: <b>' + matTitle + '</b></div>';
       html += '</div>';
 
       if (!studentSubs.length) {
-        html += '<div style="text-align:center; padding:20px; color:#ef4444;">Belum ada riwayat pengerjaan soal.</div>';
+        html += '<div style="text-align:center; padding:20px; color:#ef4444;">Belum ada riwayat pengerjaan soal pada topik ini.</div>';
       } else {
-        const byMaterial = {};
-        for (const sub of studentSubs) {
-          const matTitle = sub.quizzes?.materials?.title || 'Materi Tanpa Judul';
-          if (!byMaterial[matTitle]) byMaterial[matTitle] = [];
-          byMaterial[matTitle].push(sub);
-        }
+        html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+        html += '<tr style="background:#e0f2fe;"><th style="padding:8px;border:1px solid #bae6fd; width:40%;">Soal</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Jawaban Siswa</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Status / Pembahasan</th></tr>';
 
-        for (const [matTitle, subs] of Object.entries(byMaterial)) {
-          html += '<div style="margin-bottom:20px;">';
-          html += '<div style="font-size:16px; font-weight:bold; color:#0c4a6e; margin-bottom:10px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Materi: ' + matTitle + '</div>';
-          
-          html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
-          html += '<tr style="background:#e0f2fe;"><th style="padding:8px;border:1px solid #bae6fd; width:40%;">Soal</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Jawaban Siswa</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Status / Pembahasan</th></tr>';
+        for (const s of studentSubs) {
+          const q = s.quizzes;
+          let ansText = '';
+          let statusText = '';
+          let statusColor = '#64748b';
 
-          for (const s of subs) {
-            const q = s.quizzes;
-            let ansText = '';
-            let statusText = '';
-            let statusColor = '#64748b';
-
-            if (q.type === 'essay') {
-              ansText = s.answer_text || s.student_answer || '-';
-              statusText = 'Kunci: ' + (q.explanation || '-');
-              statusColor = '#64748b';
-            } else {
-              ansText = q.options[s.student_answer] || '-';
-              statusText = (s.is_correct ? 'BENAR' : 'SALAH') + '<br><i style="color:#64748b;">' + (q.explanation || '-') + '</i>';
-              statusColor = s.is_correct ? '#059669' : '#dc2626';
-            }
-
-            html += '<tr>';
-            html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + (q.question || '-') + '</td>';
-            html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + ansText + '</td>';
-            html += '<td style="padding:8px;border:1px solid #e2e8f0; color:' + statusColor + '; font-weight:bold;">' + statusText + '</td>';
-            html += '</tr>';
+          if (q.type === 'essay') {
+            ansText = s.answer_text || s.student_answer || '-';
+            statusText = 'Kunci: ' + (q.explanation || '-');
+            statusColor = '#64748b';
+          } else {
+            ansText = q.options[s.student_answer] || '-';
+            statusText = (s.is_correct ? 'BENAR' : 'SALAH') + '<br><i style="color:#64748b;">' + (q.explanation || '-') + '</i>';
+            statusColor = s.is_correct ? '#059669' : '#dc2626';
           }
-          html += '</table></div>';
+
+          html += '<tr>';
+          html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + (q.question || '-') + '</td>';
+          html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + ansText + '</td>';
+          html += '<td style="padding:8px;border:1px solid #e2e8f0; color:' + statusColor + '; font-weight:bold;">' + statusText + '</td>';
+          html += '</tr>';
         }
+        html += '</table>';
       }
       
       html += '<div style="margin-top:30px; text-align:right; font-size:11px; color:#94a3b8;">Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</div>';
       html += '</div>';
 
+      // Cukup SATU deklarasi wrap
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       
-      // PENGAMAN: Pastikan nama file valid
       const safeName = namaSiswa ? String(namaSiswa).replace(/\s+/g, '_') : 'Siswa';
+      const safeMat = matTitle ? String(matTitle).replace(/\s+/g, '_') : 'Materi';
       
       try {
         await html2pdf().set({
-          margin: 10, filename: 'Laporan_' + safeName + '.pdf',
+          margin: 10, filename: 'Laporan_' + safeName + '_' + safeMat + '.pdf',
           image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2, useCORS:true }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
         }).from(wrap).save();
-        this.toast('Laporan PDF berhasil diunduh.', 'success');
+        this.toast('Laporan PDF topik berhasil diunduh.', 'success');
       } catch (e) { 
         console.error("PDF Error: ", e);
         this.toast('Gagal buat PDF: ' + e.message, 'error'); 
@@ -2037,32 +2028,48 @@ function app() {
 
         <!-- 3. DETAIL LAPORAN SISWA (Muncul setelah siswa diklik) -->
         <div x-show="selectedReportStudentId" class="card p-5 space-y-4">
-          <div class="flex items-center justify-between">
-            <h4 class="font-bold text-lg">Rekap Nilai: <span x-text="membersOf(selectedReportClassId).find(m => m.siswa_id === selectedReportStudentId)?.profiles?.name || 'Siswa'"></span></h4>
-            <button @click="exportReportPDF()" class="btn btn-orange btn-sm">
-				<i data-lucide="download" class="w-4 h-4"></i> Unduh Laporan PDF
-			</button>
-          </div>
+          <h4 class="font-bold text-lg">Rekap Nilai: <span x-text="membersOf(selectedReportClassId).find(m => m.siswa_id === selectedReportStudentId)?.profiles?.name || 'Siswa'"></span></h4>
           
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-slate-100 dark:bg-slate-800 text-xs uppercase text-slate-600 dark:text-slate-400">
                 <tr>
-                  <th class="text-left px-4 py-3 font-bold">Materi</th>
-                  <th class="text-center px-4 py-3 font-bold">Tipe Soal</th>
-                  <th class="text-center px-4 py-3 font-bold">Hasil</th>
+                  <th class="text-left px-4 py-3 font-bold">Materi / Topik</th>
+                  <th class="text-center px-4 py-3 font-bold">Skor / Hasil</th>
+                  <th class="text-center px-4 py-3 font-bold">Aksi</th>
                 </tr>
               </thead>
               <tbody>
-                <template x-for="sub in submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId)" :key="sub.id">
-                  <tr class="border-t border-slate-200 dark:border-slate-800">
-                    <td class="px-4 py-3 font-semibold" x-text="sub.quizzes?.materials?.title || '-'"></td>
-                    <td class="px-4 py-3 text-center"><span class="chip" :class="sub.quizzes?.type === 'essay' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'" x-text="sub.quizzes?.type === 'essay' ? 'Esai' : 'PG'"></span></td>
-                    <td class="px-4 py-3 text-center font-bold" :class="sub.is_correct ? 'text-emerald-600' : sub.quizzes?.type === 'essay' ? 'text-slate-500' : 'text-rose-600'">
-                      <span x-text="sub.quizzes?.type === 'essay' ? 'Perlu Dinilai' : (sub.is_correct ? 'Benar' : 'Salah')"></span>
-                    </td>
-                  </tr>
+                <!-- Looping per Materi, bukan per soal -->
+                <template x-for="mat in [...new Set(submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).map(s => s.quizzes?.materials?.id))]" :key="mat">
+                  <template x-if="mat">
+                    <tr class="border-t border-slate-200 dark:border-slate-800">
+                      <!-- Ambil Judul Materi -->
+                      <td class="px-4 py-3 font-semibold" x-text="submissions.find(s => s.quizzes?.materials?.id === mat)?.quizzes?.materials?.title || 'Materi'"></td>
+                      
+                      <!-- Hitung Skor Materi Tersebut -->
+                      <td class="px-4 py-3 text-center">
+                        <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'pg').length > 0">
+                          <span class="font-bold text-emerald-600">
+                            <span x-text="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.is_correct).length"></span> / 
+                            <span x-text="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'pg').length"></span> Benar
+                          </span>
+                        </template>
+                        <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'essay').length > 0">
+                          <div class="text-xs text-orange-500 font-bold mt-1">Ada Soal Esai</div>
+                        </template>
+                      </td>
+
+                      <!-- Tombol Unduh Per Topik -->
+                      <td class="px-4 py-3 text-center">
+                        <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId, mat)" class="btn btn-orange btn-sm">
+                          <i data-lucide="download" class="w-3 h-3"></i> Unduh PDF
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
                 </template>
+                
                 <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).length === 0">
                   <tr><td colspan="3" class="text-center py-8 text-slate-400 italic">Siswa ini belum mengerjakan soal apapun di kelas ini.</td></tr>
                 </template>
