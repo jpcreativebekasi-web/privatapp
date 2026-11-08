@@ -1310,19 +1310,17 @@ function app() {
       }).from(wrap).save();
     },
 
-                async exportReportPDF(classId, siswaId, matId) {
-      // 1. Validasi
+                    async exportReportPDF(classId, siswaId, matId) {
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
       if (!classId || !siswaId || !matId) return this.toast('Data tidak lengkap untuk membuat laporan.', 'error');
 
-      // TAMPILKAN LOADING
       this.toast('Menyiapkan dokumen PDF...', 'info');
 
-      // Refresh data submissions dari database agar data terbaru masuk ke PDF
+      // Refresh data agar data terbaru masuk
       try {
         this.submissions = await this.fetchSubmissionsForGuru();
       } catch (error) {
-        console.warn("Gagal refresh data, menggunakan data lokal.", error);
+        console.warn("Gagal refresh data:", error);
       }
 
       const cls = this.classes.find(c => c.id === classId);
@@ -1331,13 +1329,11 @@ function app() {
       const mat = this.materials.find(m => m.id === matId);
       const matTitle = mat?.title || 'Materi';
 
-      // 2. Ambil data jawaban siswa HANYA untuk materi yang dipilih
       const studentSubs = this.submissions.filter(s => 
         s.siswa_id === siswaId && 
         s.quizzes?.material_id === matId
       );
 
-      // 3. Bangun HTML
       let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
       html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
       html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Laporan Hasil Belajar</div>';
@@ -1352,19 +1348,21 @@ function app() {
         html += '<tr style="background:#e0f2fe;"><th style="padding:8px;border:1px solid #bae6fd; width:40%;">Soal</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Jawaban Siswa</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Status / Pembahasan</th></tr>';
 
         for (const s of studentSubs) {
-          const q = s.quizzes;
+          const q = s.quizzes || {}; // Safeguard jika q kosong
           let ansText = '-';
           let statusText = '-';
           let statusColor = '#64748b';
 
           if (q.type === 'essay') {
-            ansText = s.answer_text || s.student_answer || '-';
+            ansText = s.answer_text || (typeof s.student_answer === 'string' ? s.student_answer : '-');
             statusText = 'Kunci: ' + (q.explanation || '-');
           } else {
-            // Pastikan options array tersedia sebelum mengakses index
-            if (q.options && q.options.length > 0) {
-              ansText = q.options[s.student_answer] || '-';
+            // SAFEGUARD: Pastikan options array ada dan index-nya valid
+            if (Array.isArray(q.options) && q.options.length > 0) {
+              const ansIndex = parseInt(s.student_answer, 10); // pastikan angka
+              ansText = (!isNaN(ansIndex) && q.options[ansIndex] !== undefined) ? q.options[ansIndex] : '-';
             }
+            
             statusText = (s.is_correct ? 'BENAR' : 'SALAH') + '<br><i style="color:#64748b;">' + (q.explanation || '-') + '</i>';
             statusColor = s.is_correct ? '#059669' : '#dc2626';
           }
@@ -1381,15 +1379,14 @@ function app() {
       html += '<div style="margin-top:30px; text-align:right; font-size:11px; color:#94a3b8;">Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</div>';
       html += '</div>';
 
-      // 4. Render ke PDF
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       
-      const safeName = namaSiswa ? String(namaSiswa).replace(/\s+/g, '_') : 'Siswa';
-      const safeMat = matTitle ? String(matTitle).replace(/\s+/g, '_') : 'Materi';
+      // BERSIHKAN NAMA FILE DARI KARAKTER ILEGAL
+      const safeName = namaSiswa ? String(namaSiswa).replace(/[^a-zA-Z0-9]/g, '_') : 'Siswa';
+      const safeMat = matTitle ? String(matTitle).replace(/[^a-zA-Z0-9]/g, '_') : 'Materi';
       
       try {
-        // Gunakan opsi html2canvas yang lebih aman
         const opt = {
           margin:       10,
           filename:     'Laporan_' + safeName + '_' + safeMat + '.pdf',
@@ -1399,7 +1396,7 @@ function app() {
         };
 
         await html2pdf().set(opt).from(wrap).save();
-        this.toast('Laporan PDF topik berhasil diunduh.', 'success');
+        this.toast('Laporan PDF berhasil diunduh.', 'success');
       } catch (e) { 
         console.error("PDF Error: ", e);
         this.toast('Gagal buat PDF: ' + e.message, 'error'); 
