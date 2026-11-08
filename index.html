@@ -110,9 +110,6 @@
 </style>
 
 <script>
-/* ═══════════════════════════════════════════════════════════════════════════
-   DEMO SEED DATA
-   ═══════════════════════════════════════════════════════════════════════════ */
 function seedDemoData() {
   const now = Date.now(), day = 86400000;
   const iso = d => new Date(now - d * day).toISOString();
@@ -166,9 +163,6 @@ x² - 5x + 6 = 0 → (x - 2)(x - 3) = 0 → x = 2 atau x = 3` }
   return { profiles, classes, class_members, materials, quizzes, quiz_submissions: submissions };
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   ALPINE APP
-   ═══════════════════════════════════════════════════════════════════════════ */
 function app() {
   return {
     booting: true,
@@ -1265,7 +1259,6 @@ function app() {
       if (!this.viewingMaterial) return;
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
       
-      // Buat elemen HTML sementara untuk dirender ke PDF
       const wrap = document.createElement('div');
       wrap.innerHTML = `
         <div style="font-family:Inter,sans-serif; padding:28px; color:#0f172a;">
@@ -1335,7 +1328,7 @@ function app() {
       }).from(wrap).save();
     },
 
-      async exportReportPDF() {
+    async exportReportPDF() {
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
       
       const classId = this.selectedReportClassId;
@@ -1347,7 +1340,6 @@ function app() {
       const member = this.membersByClass[classId]?.find(m => m.siswa_id === siswaId);
       const namaSiswa = member?.profiles?.name || 'Siswa';
 
-      // Ambil data dari variabel global submissions (bukan demoData)
       const studentSubs = this.submissions.filter(s => s.siswa_id === siswaId && s.quizzes?.materials?.class_id === classId);
 
       let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
@@ -1360,7 +1352,6 @@ function app() {
       if (!studentSubs.length) {
         html += '<div style="text-align:center; padding:20px; color:#ef4444;">Belum ada riwayat pengerjaan soal.</div>';
       } else {
-        // Kelompokkan berdasarkan Materi
         const byMaterial = {};
         for (const sub of studentSubs) {
           const matTitle = sub.quizzes?.materials?.title || 'Materi Tanpa Judul';
@@ -1407,12 +1398,6 @@ function app() {
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       
-            const wrap = document.createElement('div');
-      wrap.innerHTML = html;
-      
-      // Tampilkan efek loading
-      this.toast('Sedang membuat PDF...', 'info');
-      
       // PENGAMAN: Pastikan nama file valid
       const safeName = namaSiswa ? String(namaSiswa).replace(/\s+/g, '_') : 'Siswa';
       
@@ -1428,8 +1413,7 @@ function app() {
       }
     },
 
-    // FITUR AI
-        async callAI(prompt) {
+    async callAI(prompt) {
       if (this.cfg.aiProvider === 'gemini') {
         if (!this.cfg.geminiKey) throw new Error('Gemini API Key belum diisi di Settings.');
         const model = this.cfg.geminiModel || 'gemini-1.5-flash'; 
@@ -1463,7 +1447,7 @@ function app() {
       } catch (e) { this.toast('AI error: ' + e.message, 'error'); }
       finally { this.aiMaterial.loading = false; }
     },
-        async aiGenerateQuiz() {
+    async aiGenerateQuiz() {
       if (!this.selectedMaterialId) return this.toast('Pilih materi dulu.', 'error');
       if (!this.aiQuiz.topic.trim()) return this.toast('Isi topik soal.', 'error');
       this.aiQuiz.loading = true;
@@ -1472,7 +1456,6 @@ function app() {
         const prompt = 'Buat ' + n + ' soal pilihan ganda Bahasa Indonesia tentang topik: "' + this.aiQuiz.topic + '". Kembalikan HANYA JSON array valid (tanpa code fence): [{"question":"...","options":["...","...","...","..."],"correct_option":0,"explanation":"..."}]';
         const aiText = await this.callAI(prompt);
         
-        // Bersihkan format markdown code block jika ada
         let cleanText = aiText.trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
         const arr = JSON.parse(cleanText);
         
