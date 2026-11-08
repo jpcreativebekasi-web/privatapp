@@ -830,39 +830,20 @@ function app() {
       if (error) throw error;
       return data || [];
     },
-    async fetchSubmissionsForGuru() {
+        async fetchSubmissionsForGuru() {
       if (this.mode === 'demo') {
-        const myMatIds = (this.demoData?.materials || []).filter(m => m.guru_id === this.profile?.id).map(m => m.id);
-        const myQzIds = (this.demoData?.quizzes || []).filter(q => myMatIds.includes(q.material_id)).map(q => q.id);
-        return (this.demoData?.quiz_submissions || [])
-          .filter(s => myQzIds.includes(s.quiz_id))
-          .map(s => {
-            const q = (this.demoData?.quizzes || []).find(x => x.id === s.quiz_id);
-            const m = (this.demoData?.materials || []).find(x => x.id === q?.material_id);
-            const c = (this.demoData?.classes || []).find(x => x.id === m?.class_id);
-            return {
-              ...s,
-              profiles: (this.demoData?.profiles || []).find(p => p.id === s.siswa_id),
-              quizzes: { ...(q||{}), materials: { ...(m||{}), classes: c } }
-            };
-          })
-          .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
-          .slice(0, 300);
+        // ... (biarkan kode demo bawaan Anda) ...
       }
+      
+      // PERBAIKAN QUERY CLOUD: Tambahkan options dan explanation
       const { data: myQz, error: e1 } = await this.sb.from('quizzes').select('id').eq('guru_id', this.profile.id);
       if (e1) throw e1;
       const ids = (myQz||[]).map(q => q.id);
       if (!ids.length) return [];
+      
       const { data, error } = await this.sb.from('quiz_submissions')
-        // TAMBAHKAN id di dalam materials:material_id(...)
-        .select('*, profiles:siswa_id(name), quizzes:quiz_id(question, material_id, type, materials:material_id(id, title, class_id, classes:class_id(title)))')
+        .select('*, profiles:siswa_id(name), quizzes:quiz_id(question, material_id, type, options, explanation, materials:material_id(id, title, class_id, classes:class_id(title)))')
         .in('quiz_id', ids).order('created_at', { ascending: false }).limit(300);
-      if (error) throw error;
-      return data || [];
-    },
-    async fetchMySubmissions(quizIds) {
-      if (this.mode === 'demo') return (this.demoData?.quiz_submissions || []).filter(s => s.siswa_id === this.profile?.id && quizIds.includes(s.quiz_id));
-      const { data, error } = await this.sb.from('quiz_submissions').select('*').eq('siswa_id', this.profile.id).in('quiz_id', quizIds);
       if (error) throw error;
       return data || [];
     },
@@ -1329,10 +1310,20 @@ function app() {
       }).from(wrap).save();
     },
 
-            async exportReportPDF(classId, siswaId, matId) {
+                async exportReportPDF(classId, siswaId, matId) {
       // 1. Validasi
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
       if (!classId || !siswaId || !matId) return this.toast('Data tidak lengkap untuk membuat laporan.', 'error');
+
+      // TAMPILKAN LOADING
+      this.toast('Menyiapkan dokumen PDF...', 'info');
+
+      // Refresh data submissions dari database agar data terbaru masuk ke PDF
+      try {
+        this.submissions = await this.fetchSubmissionsForGuru();
+      } catch (error) {
+        console.warn("Gagal refresh data, menggunakan data lokal.", error);
+      }
 
       const cls = this.classes.find(c => c.id === classId);
       const member = this.membersByClass[classId]?.find(m => m.siswa_id === siswaId);
@@ -1362,16 +1353,18 @@ function app() {
 
         for (const s of studentSubs) {
           const q = s.quizzes;
-          let ansText = '';
-          let statusText = '';
+          let ansText = '-';
+          let statusText = '-';
           let statusColor = '#64748b';
 
           if (q.type === 'essay') {
             ansText = s.answer_text || s.student_answer || '-';
             statusText = 'Kunci: ' + (q.explanation || '-');
-            statusColor = '#64748b';
           } else {
-            ansText = q.options[s.student_answer] || '-';
+            // Pastikan options array tersedia sebelum mengakses index
+            if (q.options && q.options.length > 0) {
+              ansText = q.options[s.student_answer] || '-';
+            }
             statusText = (s.is_correct ? 'BENAR' : 'SALAH') + '<br><i style="color:#64748b;">' + (q.explanation || '-') + '</i>';
             statusColor = s.is_correct ? '#059669' : '#dc2626';
           }
@@ -1388,7 +1381,7 @@ function app() {
       html += '<div style="margin-top:30px; text-align:right; font-size:11px; color:#94a3b8;">Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</div>';
       html += '</div>';
 
-      // 4. Render ke PDF (Cukup SATU variabel wrap)
+      // 4. Render ke PDF
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       
@@ -1396,10 +1389,16 @@ function app() {
       const safeMat = matTitle ? String(matTitle).replace(/\s+/g, '_') : 'Materi';
       
       try {
-        await html2pdf().set({
-          margin: 10, filename: 'Laporan_' + safeName + '_' + safeMat + '.pdf',
-          image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2, useCORS:true }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
-        }).from(wrap).save();
+        // Gunakan opsi html2canvas yang lebih aman
+        const opt = {
+          margin:       10,
+          filename:     'Laporan_' + safeName + '_' + safeMat + '.pdf',
+          image:        { type: 'jpeg', quality: 0.98 },
+          html2canvas:  { scale: 2, useCORS: true, logging: false },
+          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        await html2pdf().set(opt).from(wrap).save();
         this.toast('Laporan PDF topik berhasil diunduh.', 'success');
       } catch (e) { 
         console.error("PDF Error: ", e);
