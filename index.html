@@ -200,6 +200,8 @@ function app() {
     toasts: [],
     viewingMaterial: null,
     selectedMaterialId: null,
+	selectedReportClassId: null,
+    selectedReportStudentId: null,
     editingQuizId: null,
     editingMaterialId: null,
 
@@ -1333,53 +1335,79 @@ function app() {
       }).from(wrap).save();
     },
 
-    async exportReportPDF(classId) {
+        async exportReportPDF(classId, siswaId) {
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
+      
       const cls = this.classes.find(c => c.id === classId);
-      let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
-      html += '<div style="border-bottom:3px solid #0284c7;padding-bottom:12px;margin-bottom:18px"><div style="font-size:22px;font-weight:800;color:#0284c7">LiveLearn — Laporan Per Siswa</div>';
-      html += '<div style="font-size:12px;color:#64748b">Kelas: ' + (cls?.title || '-') + ' · Kode: ' + (cls?.class_code || '-') + '</div></div>';
+      const member = this.membersByClass[classId]?.find(m => m.siswa_id === siswaId);
+      const namaSiswa = member?.profiles?.name || 'Siswa';
 
-      const members = this.membersByClass[classId] || [];
-      for (const m of members) {
-        const namaSiswa = m.profiles?.name || 'Siswa';
-        const subs = (this.demoData?.quiz_submissions || []).filter(s => s.siswa_id === m.siswa_id);
-        
-        html += '<div style="margin-bottom:20px; padding:15px; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc">';
-        html += '<div style="font-size:16px; font-weight:bold; color:#0c4a6e; margin-bottom:10px;">Nama Siswa: ' + namaSiswa + '</div>';
-        
-        if (!subs.length) {
-          html += '<div style="font-size:12px; color:#ef4444;">Belum mengerjakan kuis apapun.</div>';
-        } else {
-          html += '<table style="width:100%; border-collapse:collapse; font-size:11px;">';
-          html += '<tr style="background:#e0f2fe;"><th style="padding:6px;border:1px solid #bae6fd;">Soal</th><th style="padding:6px;border:1px solid #bae6fd;">Tipe</th><th style="padding:6px;border:1px solid #bae6fd;">Jawaban</th><th style="padding:6px;border:1px solid #bae6fd;">Hasil</th></tr>';
+      // Ambil data dari variabel global submissions (bukan demoData)
+      const studentSubs = this.submissions.filter(s => s.siswa_id === siswaId && s.quizzes?.materials?.class_id === classId);
+
+      let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
+      html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
+      html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Laporan Hasil Belajar</div>';
+      html += '<div style="font-size:14px; margin-top:5px;">Nama Siswa: <b>' + namaSiswa + '</b></div>';
+      html += '<div style="font-size:14px;">Kelas: <b>' + (cls?.title || '-') + '</b> | Kode: ' + (cls?.class_code || '-') + '</div>';
+      html += '</div>';
+
+      if (!studentSubs.length) {
+        html += '<div style="text-align:center; padding:20px; color:#ef4444;">Belum ada riwayat pengerjaan soal.</div>';
+      } else {
+        // Kelompokkan berdasarkan Materi
+        const byMaterial = {};
+        for (const sub of studentSubs) {
+          const matTitle = sub.quizzes?.materials?.title || 'Materi Tanpa Judul';
+          if (!byMaterial[matTitle]) byMaterial[matTitle] = [];
+          byMaterial[matTitle].push(sub);
+        }
+
+        for (const [matTitle, subs] of Object.entries(byMaterial)) {
+          html += '<div style="margin-bottom:20px;">';
+          html += '<div style="font-size:16px; font-weight:bold; color:#0c4a6e; margin-bottom:10px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Materi: ' + matTitle + '</div>';
           
+          html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+          html += '<tr style="background:#e0f2fe;"><th style="padding:8px;border:1px solid #bae6fd; width:40%;">Soal</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Jawaban Siswa</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Status / Pembahasan</th></tr>';
+
           for (const s of subs) {
-            const q = this.demoData.quizzes.find(x => x.id === s.quiz_id);
-            if (!q) continue;
-            const ans = q.type === 'essay' ? 'Esai: ' + (s.answer_text || s.student_answer) : q.options[s.student_answer];
+            const q = s.quizzes;
+            let ansText = '';
+            let statusText = '';
+            let statusColor = '#64748b';
+
+            if (q.type === 'essay') {
+              ansText = s.answer_text || s.student_answer || '-';
+              statusText = 'Kunci: ' + (q.explanation || '-');
+              statusColor = '#64748b';
+            } else {
+              ansText = q.options[s.student_answer] || '-';
+              statusText = (s.is_correct ? 'BENAR' : 'SALAH') + '<br><i style="color:#64748b;">' + (q.explanation || '-') + '</i>';
+              statusColor = s.is_correct ? '#059669' : '#dc2626';
+            }
+
             html += '<tr>';
-            html += '<td style="padding:6px;border:1px solid #e2e8f0;">' + q.question + '</td>';
-            html += '<td style="padding:6px;border:1px solid #e2e8f0; text-align:center;">' + (q.type === 'essay' ? 'Esai' : 'PG') + '</td>';
-            html += '<td style="padding:6px;border:1px solid #e2e8f0;">' + ans + '</td>';
-            html += '<td style="padding:6px;border:1px solid #e2e8f0; text-align:center; font-weight:bold; color:' + (s.is_correct ? '#059669' : q.type==='essay'?'#64748b':'#dc2626') + '">' + (q.type === 'essay' ? 'Perlu Dinilai' : (s.is_correct ? 'BENAR' : 'SALAH')) + '</td>';
+            html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + (q.question || '-') + '</td>';
+            html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + ansText + '</td>';
+            html += '<td style="padding:8px;border:1px solid #e2e8f0; color:' + statusColor + '; font-weight:bold;">' + statusText + '</td>';
             html += '</tr>';
           }
-          html += '</table>';
+          html += '</table></div>';
         }
-        html += '</div>';
       }
+      
+      html += '<div style="margin-top:30px; text-align:right; font-size:11px; color:#94a3b8;">Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</div>';
       html += '</div>';
 
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       try {
         await html2pdf().set({
-          margin: 0, filename: 'Laporan_Siswa_' + cls.class_code + '.pdf',
+          margin: 10, filename: 'Laporan_' + namaSiswa.replace(/\s+/g, '_') + '.pdf',
           image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2, useCORS:true }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
         }).from(wrap).save();
-        this.toast('PDF Per Siswa dibuat.', 'success');
-      } catch (e) { this.toast('PDF gagal: ' + e.message, 'error'); }
+        this.toast('Laporan PDF berhasil diunduh.', 'success');
+      } catch (e) { this.toast('Gagal buat PDF: ' + e.message, 'error'); }
     },
 
     // FITUR AI
@@ -1972,19 +2000,74 @@ function app() {
         </div>
       </section>
 
-      <!-- REPORTS -->
+      <!-- REPORTS -->          
       <section x-show="tab==='reports'" class="space-y-5">
         <div class="card p-5">
           <h3 class="font-bold mb-1 flex items-center gap-2"><i data-lucide="file-text" class="w-4 h-4 text-sky-600 dark:text-sky-400"></i> Laporan Per Siswa</h3>
-          <p class="text-xs text-slate-500">Pilih kelas untuk mengunduh laporan PDF setiap siswa beserta jawabannya.</p>
+          <p class="text-xs text-slate-500">Pilih kelas, lalu pilih siswa untuk melihat detail jawaban dan mengunduh PDF.</p>
         </div>
-        <div class="grid md:grid-cols-2 gap-4">
+
+        <!-- 1. PILIH KELAS -->
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           <template x-for="c in classes" :key="c.id">
-            <div class="card p-4">
+            <div @click="selectedReportClassId = c.id; selectedReportStudentId = null;" 
+                 class="card p-4 cursor-pointer transition border-2"
+                 :class="selectedReportClassId === c.id ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-slate-200 dark:border-slate-800'">
               <div class="font-bold mb-1" x-text="c.title"></div>
-              <button @click="exportReportPDF(c.id)" class="btn btn-orange btn-sm w-full mt-3"><i data-lucide="download" class="w-3 h-3"></i> Download Laporan (PDF)</button>
+              <div class="text-xs text-slate-500">Kode: <span class="font-mono font-bold" x-text="c.class_code"></span></div>
             </div>
           </template>
+        </div>
+
+        <!-- 2. PILIH SISWA (Muncul setelah kelas diklik) -->
+        <div x-show="selectedReportClassId" class="card p-5 space-y-4">
+          <h4 class="font-bold text-sm text-slate-500 uppercase tracking-wider">Daftar Siswa</h4>
+          <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <template x-for="m in membersOf(selectedReportClassId)" :key="m.id">
+              <div @click="selectedReportStudentId = m.siswa_id" 
+                   class="p-3 rounded-xl border cursor-pointer transition flex items-center gap-3"
+                   :class="selectedReportStudentId === m.siswa_id ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50'">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-sky-700 to-sky-500 text-white flex items-center justify-center text-xs font-bold" x-text="m.profiles?.name?.charAt(0) || '?'"></div>
+                <div class="font-semibold text-sm truncate" x-text="m.profiles?.name || 'Siswa'"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- 3. DETAIL LAPORAN SISWA (Muncul setelah siswa diklik) -->
+        <div x-show="selectedReportStudentId" class="card p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-lg">Rekap Nilai: <span x-text="membersOf(selectedReportClassId).find(m => m.siswa_id === selectedReportStudentId)?.profiles?.name || 'Siswa'"></span></h4>
+            <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId)" class="btn btn-orange btn-sm">
+              <i data-lucide="download" class="w-4 h-4"></i> Unduh Laporan PDF
+            </button>
+          </div>
+          
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-100 dark:bg-slate-800 text-xs uppercase text-slate-600 dark:text-slate-400">
+                <tr>
+                  <th class="text-left px-4 py-3 font-bold">Materi</th>
+                  <th class="text-center px-4 py-3 font-bold">Tipe Soal</th>
+                  <th class="text-center px-4 py-3 font-bold">Hasil</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="sub in submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId)" :key="sub.id">
+                  <tr class="border-t border-slate-200 dark:border-slate-800">
+                    <td class="px-4 py-3 font-semibold" x-text="sub.quizzes?.materials?.title || '-'"></td>
+                    <td class="px-4 py-3 text-center"><span class="chip" :class="sub.quizzes?.type === 'essay' ? 'bg-orange-100 text-orange-700' : 'bg-sky-100 text-sky-700'" x-text="sub.quizzes?.type === 'essay' ? 'Esai' : 'PG'"></span></td>
+                    <td class="px-4 py-3 text-center font-bold" :class="sub.is_correct ? 'text-emerald-600' : sub.quizzes?.type === 'essay' ? 'text-slate-500' : 'text-rose-600'">
+                      <span x-text="sub.quizzes?.type === 'essay' ? 'Perlu Dinilai' : (sub.is_correct ? 'Benar' : 'Salah')"></span>
+                    </td>
+                  </tr>
+                </template>
+                <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).length === 0">
+                  <tr><td colspan="3" class="text-center py-8 text-slate-400 italic">Siswa ini belum mengerjakan soal apapun di kelas ini.</td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>
