@@ -110,6 +110,9 @@
 </style>
 
 <script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEMO SEED DATA
+   ═══════════════════════════════════════════════════════════════════════════ */
 function seedDemoData() {
   const now = Date.now(), day = 86400000;
   const iso = d => new Date(now - d * day).toISOString();
@@ -163,6 +166,9 @@ x² - 5x + 6 = 0 → (x - 2)(x - 3) = 0 → x = 2 atau x = 3` }
   return { profiles, classes, class_members, materials, quizzes, quiz_submissions: submissions };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ALPINE APP
+   ═══════════════════════════════════════════════════════════════════════════ */
 function app() {
   return {
     booting: true,
@@ -831,66 +837,40 @@ function app() {
       return data || [];
     },
     async fetchSubmissionsForGuru() {
-  // ===== MODE DEMO =====
-  if (this.mode === 'demo') {
-    const myMatIds = (this.demoData?.materials || [])
-      .filter(m => m.guru_id === this.profile?.id)
-      .map(m => m.id);
-    const myQzIds = (this.demoData?.quizzes || [])
-      .filter(q => myMatIds.includes(q.material_id))
-      .map(q => q.id);
-
-    return (this.demoData?.quiz_submissions || [])
-      .filter(s => myQzIds.includes(s.quiz_id))
-      .map(s => {
-        const q = (this.demoData?.quizzes || []).find(x => x.id === s.quiz_id) || {};
-        const m = (this.demoData?.materials || []).find(x => x.id === q.material_id) || {};
-        const c = (this.demoData?.classes || []).find(x => x.id === m.class_id) || {};
-        return {
-          ...s,
-          profiles: (this.demoData?.profiles || []).find(p => p.id === s.siswa_id),
-          quizzes: { ...q, materials: { ...m, classes: c } }
-        };
-      })
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 300);
-  },
-
-  // ===== MODE CLOUD =====
-  // 1. Ambil quiz milik guru (tanpa nested materials — biar aman)
-  const { data: myQz, error: e1 } = await this.sb
-    .from('quizzes')
-    .select('id, question, material_id, type, explanation, options')
-    .eq('guru_id', this.profile.id);
-  if (e1) throw e1;
-
-  const ids = (myQz || []).map(q => q.id);
-  if (!ids.length) return [];
-
-  // 2. Ambil submissions tanpa nested relasi bertingkat
-  const { data: subs, error } = await this.sb
-    .from('quiz_submissions')
-    .select('*, profiles:siswa_id(name)')
-    .in('quiz_id', ids)
-    .order('created_at', { ascending: false })
-    .limit(300);
-  if (error) throw error;
-
-  // 3. Join manual di JS
-  const qzMap  = Object.fromEntries((myQz || []).map(q => [q.id, q]));
-  const matMap = Object.fromEntries((this.materials || []).map(m => [m.id, m]));
-  const clsMap = Object.fromEntries((this.classes || []).map(c => [c.id, c]));
-
-  return (subs || []).map(s => {
-    const q = qzMap[s.quiz_id] || {};
-    const m = matMap[q.material_id] || {};
-    const c = clsMap[m.class_id] || {};
-    return {
-      ...s,
-      quizzes: { ...q, materials: { ...m, classes: c } }
-    };
-  });
-},
+      if (this.mode === 'demo') {
+        const myMatIds = (this.demoData?.materials || []).filter(m => m.guru_id === this.profile?.id).map(m => m.id);
+        const myQzIds = (this.demoData?.quizzes || []).filter(q => myMatIds.includes(q.material_id)).map(q => q.id);
+        return (this.demoData?.quiz_submissions || [])
+          .filter(s => myQzIds.includes(s.quiz_id))
+          .map(s => {
+            const q = (this.demoData?.quizzes || []).find(x => x.id === s.quiz_id);
+            const m = (this.demoData?.materials || []).find(x => x.id === q?.material_id);
+            const c = (this.demoData?.classes || []).find(x => x.id === m?.class_id);
+            return {
+              ...s,
+              profiles: (this.demoData?.profiles || []).find(p => p.id === s.siswa_id),
+              quizzes: { ...(q||{}), materials: { ...(m||{}), classes: c } }
+            };
+          })
+          .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+          .slice(0, 300);
+      }
+      const { data: myQz, error: e1 } = await this.sb.from('quizzes').select('id').eq('guru_id', this.profile.id);
+      if (e1) throw e1;
+      const ids = (myQz||[]).map(q => q.id);
+      if (!ids.length) return [];
+      const { data, error } = await this.sb.from('quiz_submissions')
+        .select('*, profiles:siswa_id(name), quizzes:quiz_id(question, material_id, type, materials:material_id(title, class_id, classes:class_id(title)))')
+        .in('quiz_id', ids).order('created_at', { ascending: false }).limit(300);
+      if (error) throw error;
+      return data || [];
+    },
+    async fetchMySubmissions(quizIds) {
+      if (this.mode === 'demo') return (this.demoData?.quiz_submissions || []).filter(s => s.siswa_id === this.profile?.id && quizIds.includes(s.quiz_id));
+      const { data, error } = await this.sb.from('quiz_submissions').select('*').eq('siswa_id', this.profile.id).in('quiz_id', quizIds);
+      if (error) throw error;
+      return data || [];
+    },
 
     async loadGuruData() {
       try {
@@ -1285,6 +1265,7 @@ function app() {
       if (!this.viewingMaterial) return;
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
       
+      // Buat elemen HTML sementara untuk dirender ke PDF
       const wrap = document.createElement('div');
       wrap.innerHTML = `
         <div style="font-family:Inter,sans-serif; padding:28px; color:#0f172a;">
@@ -1318,138 +1299,137 @@ function app() {
     },
 	
     async printStudentResult() {
-  if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
-  try {
-    const namaSiswa = this.profile?.name || 'Siswa';
-    const namaKelas = this.viewingMaterial?.classes?.title || '-';
-    const judulMateri = this.viewingMaterial?.title || 'Materi';
+      if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
+      let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
+      html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
+      html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Hasil Tes</div>';
+      html += '<div style="font-size:14px; margin-top:5px;">Nama: <b>' + this.profile.name + '</b> | Kelas: ' + this.viewingMaterial.classes.title + '</div>';
+      html += '<div style="font-size:14px;">Materi: <b>' + this.viewingMaterial.title + '</b> | Skor PG: <b style="color:#ea580c;font-size:18px;">' + this.score + '</b></div>';
+      html += '</div>';
 
-    let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
-    html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
-    html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Hasil Tes</div>';
-    html += '<div style="font-size:14px; margin-top:5px;">Nama: <b>' + namaSiswa + '</b> | Kelas: ' + namaKelas + '</div>';
-    html += '<div style="font-size:14px;">Materi: <b>' + judulMateri + '</b> | Skor PG: <b style="color:#ea580c;font-size:18px;">' + (this.score || 0) + '</b></div>';
-    html += '</div>';
-
-    for (let i = 0; i < this.quizzes.length; i++) {
-      const q = this.quizzes[i];
-      const userAns = this.quizAnswers[q.id];
-      const userEssay = this.essayAnswers[q.id];
-      const isCorrect = q.type === 'pg' ? (userAns === q.correct_option) : null;
-
-      html += '<div style="margin-bottom:15px; padding:12px; border:1px solid #cbd5e1; border-radius:8px; background:' + (isCorrect === true ? '#f0fdf4' : isCorrect === false ? '#fef2f2' : '#f8fafc') + '">';
-      html += '<div style="font-weight:bold; margin-bottom:8px;">' + (i+1) + '. ' + (q.question || '-') + ' <span style="font-size:10px; color:#64748b; font-weight:normal;">(' + (q.type === 'pg' ? 'Pilihan Ganda' : 'Uraian') + ')</span></div>';
-
-      if (q.type === 'pg') {
-        const opts = Array.isArray(q.options) ? q.options : [];
-        const userText = (Number.isInteger(userAns) && opts[userAns] !== undefined) ? opts[userAns] : 'Tidak dijawab';
-        const correctText = opts[q.correct_option] !== undefined ? opts[q.correct_option] : '-';
-        html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <b>' + userText + '</b></div>';
-        if (!isCorrect) html += '<div style="font-size:12px; color:#059669;">Jawaban Benar: <b>' + correctText + '</b></div>';
-      } else {
-        html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <i>' + (userEssay || 'Tidak dijawab') + '</i></div>';
-        html += '<div style="font-size:12px; color:#059669;">Kunci: <i>' + (q.explanation || '-') + '</i></div>';
+      for (let i = 0; i < this.quizzes.length; i++) {
+        const q = this.quizzes[i];
+        const userAns = this.quizAnswers[q.id];
+        const userEssay = this.essayAnswers[q.id];
+        const isCorrect = q.type === 'pg' ? (userAns === q.correct_option) : null;
+        
+        html += '<div style="margin-bottom:15px; padding:12px; border:1px solid #cbd5e1; border-radius:8px; background:' + (isCorrect === true ? '#f0fdf4' : isCorrect === false ? '#fef2f2' : '#f8fafc') + '">';
+        html += '<div style="font-weight:bold; margin-bottom:8px;">' + (i+1) + '. ' + q.question + ' <span style="font-size:10px; color:#64748b; font-weight:normal;">(' + (q.type === 'pg' ? 'Pilihan Ganda' : 'Uraian') + ')</span></div>';
+        
+        if (q.type === 'pg') {
+          html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <b>' + (userAns !== undefined ? q.options[userAns] : 'Tidak dijawab') + '</b></div>';
+          if (!isCorrect) html += '<div style="font-size:12px; color:#059669;">Jawaban Benar: <b>' + q.options[q.correct_option] + '</b></div>';
+        } else {
+          html += '<div style="font-size:12px; color:#475569;">Jawaban Anda: <i>' + (userEssay || 'Tidak dijawab') + '</i></div>';
+          html += '<div style="font-size:12px; color:#059669;">Kunci: <i>' + q.explanation + '</i></div>';
+        }
+        html += '</div>';
       }
       html += '</div>';
-    }
-    html += '</div>';
 
-    const wrap = document.createElement('div');
-    wrap.innerHTML = html;
-    await html2pdf().set({
-      margin: 0, filename: 'Hasil_Tes_' + namaSiswa + '.pdf',
-      image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2 }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
-    }).from(wrap).save();
-    this.toast('Hasil tes berhasil diunduh.', 'success');
-  } catch (e) {
-    console.error('PDF Error:', e);
-    this.toast('Gagal buat PDF: ' + e.message, 'error');
-  }
-},
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      await html2pdf().set({
+        margin: 0, filename: 'Hasil_Tes_' + this.profile.name + '.pdf',
+        image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2 }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
+      }).from(wrap).save();
+    },
 
-            async exportReportPDF(classId, siswaId, matId) {
-  if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
-  if (!classId || !siswaId || !matId) return this.toast('Data tidak lengkap untuk membuat laporan.', 'error');
+      async exportReportPDF() {
+      if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
+      
+      const classId = this.selectedReportClassId;
+      const siswaId = this.selectedReportStudentId;
+      
+      if (!classId || !siswaId) return this.toast('Pilih kelas dan siswa terlebih dahulu.', 'error');
 
-  const cls = this.classes.find(c => c.id === classId);
-  const member = this.membersByClass[classId]?.find(m => m.siswa_id === siswaId);
-  const namaSiswa = member?.profiles?.name || 'Siswa';
-  const mat = this.materials.find(m => m.id === matId);
-  const matTitle = mat?.title || 'Materi';
+      const cls = this.classes.find(c => c.id === classId);
+      const member = this.membersByClass[classId]?.find(m => m.siswa_id === siswaId);
+      const namaSiswa = member?.profiles?.name || 'Siswa';
 
-  // Filter dengan guard yang lebih aman
-  const studentSubs = this.submissions.filter(s => {
-    if (s.siswa_id !== siswaId) return false;
-    const q = s.quizzes || {};
-    const m = q.materials || {};
-    // Bisa cek lewat q.material_id ATAU m.id
-    return q.material_id === matId || m.id === matId;
-  });
+      // Ambil data dari variabel global submissions (bukan demoData)
+      const studentSubs = this.submissions.filter(s => s.siswa_id === siswaId && s.quizzes?.materials?.class_id === classId);
 
-  let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
-  html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
-  html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Laporan Hasil Belajar</div>';
-  html += '<div style="font-size:14px; margin-top:5px;">Nama Siswa: <b>' + namaSiswa + '</b></div>';
-  html += '<div style="font-size:14px;">Kelas: <b>' + (cls?.title || '-') + '</b> | Topik: <b>' + matTitle + '</b></div>';
-  html += '</div>';
+      let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
+      html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
+      html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Laporan Hasil Belajar</div>';
+      html += '<div style="font-size:14px; margin-top:5px;">Nama Siswa: <b>' + namaSiswa + '</b></div>';
+      html += '<div style="font-size:14px;">Kelas: <b>' + (cls?.title || '-') + '</b> | Kode: ' + (cls?.class_code || '-') + '</div>';
+      html += '</div>';
 
-  if (!studentSubs.length) {
-    html += '<div style="text-align:center; padding:20px; color:#ef4444;">Siswa belum mengerjakan soal pada topik ini.</div>';
-  } else {
-    html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
-    html += '<tr style="background:#e0f2fe;"><th style="padding:8px;border:1px solid #bae6fd; width:40%;">Soal</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Jawaban Siswa</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Status / Pembahasan</th></tr>';
-
-    for (const s of studentSubs) {
-      const q = s.quizzes || {};
-      let ansText = '-';
-      let statusText = '-';
-      let statusColor = '#64748b';
-
-      if (q.type === 'essay') {
-        ansText = s.answer_text || (typeof s.student_answer === 'string' ? s.student_answer : '-') || '-';
-        statusText = 'Kunci: ' + (q.explanation || '-');
-        statusColor = '#64748b';
+      if (!studentSubs.length) {
+        html += '<div style="text-align:center; padding:20px; color:#ef4444;">Belum ada riwayat pengerjaan soal.</div>';
       } else {
-        const opts = Array.isArray(q.options) ? q.options : [];
-        const idx = Number(s.student_answer);
-        ansText = (Number.isInteger(idx) && opts[idx] !== undefined) ? opts[idx] : '-';
-        statusText = (s.is_correct ? 'BENAR' : 'SALAH') + '<br><i style="color:#64748b;">' + (q.explanation || '-') + '</i>';
-        statusColor = s.is_correct ? '#059669' : '#dc2626';
+        // Kelompokkan berdasarkan Materi
+        const byMaterial = {};
+        for (const sub of studentSubs) {
+          const matTitle = sub.quizzes?.materials?.title || 'Materi Tanpa Judul';
+          if (!byMaterial[matTitle]) byMaterial[matTitle] = [];
+          byMaterial[matTitle].push(sub);
+        }
+
+        for (const [matTitle, subs] of Object.entries(byMaterial)) {
+          html += '<div style="margin-bottom:20px;">';
+          html += '<div style="font-size:16px; font-weight:bold; color:#0c4a6e; margin-bottom:10px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Materi: ' + matTitle + '</div>';
+          
+          html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+          html += '<tr style="background:#e0f2fe;"><th style="padding:8px;border:1px solid #bae6fd; width:40%;">Soal</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Jawaban Siswa</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Status / Pembahasan</th></tr>';
+
+          for (const s of subs) {
+            const q = s.quizzes;
+            let ansText = '';
+            let statusText = '';
+            let statusColor = '#64748b';
+
+            if (q.type === 'essay') {
+              ansText = s.answer_text || s.student_answer || '-';
+              statusText = 'Kunci: ' + (q.explanation || '-');
+              statusColor = '#64748b';
+            } else {
+              ansText = q.options[s.student_answer] || '-';
+              statusText = (s.is_correct ? 'BENAR' : 'SALAH') + '<br><i style="color:#64748b;">' + (q.explanation || '-') + '</i>';
+              statusColor = s.is_correct ? '#059669' : '#dc2626';
+            }
+
+            html += '<tr>';
+            html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + (q.question || '-') + '</td>';
+            html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + ansText + '</td>';
+            html += '<td style="padding:8px;border:1px solid #e2e8f0; color:' + statusColor + '; font-weight:bold;">' + statusText + '</td>';
+            html += '</tr>';
+          }
+          html += '</table></div>';
+        }
       }
+      
+      html += '<div style="margin-top:30px; text-align:right; font-size:11px; color:#94a3b8;">Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</div>';
+      html += '</div>';
 
-      html += '<tr>';
-      html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + (q.question || '-') + '</td>';
-      html += '<td style="padding:8px;border:1px solid #e2e8f0;">' + ansText + '</td>';
-      html += '<td style="padding:8px;border:1px solid #e2e8f0; color:' + statusColor + '; font-weight:bold;">' + statusText + '</td>';
-      html += '</tr>';
-    }
-    html += '</table>';
-  }
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      
+            const wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      
+      // Tampilkan efek loading
+      this.toast('Sedang membuat PDF...', 'info');
+      
+      // PENGAMAN: Pastikan nama file valid
+      const safeName = namaSiswa ? String(namaSiswa).replace(/\s+/g, '_') : 'Siswa';
+      
+      try {
+        await html2pdf().set({
+          margin: 10, filename: 'Laporan_' + safeName + '.pdf',
+          image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2, useCORS:true }, jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
+        }).from(wrap).save();
+        this.toast('Laporan PDF berhasil diunduh.', 'success');
+      } catch (e) { 
+        console.error("PDF Error: ", e);
+        this.toast('Gagal buat PDF: ' + e.message, 'error'); 
+      }
+    },
 
-  html += '<div style="margin-top:30px; text-align:right; font-size:11px; color:#94a3b8;">Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</div>';
-  html += '</div>';
-
-  const wrap = document.createElement('div');
-  wrap.innerHTML = html;
-
-  const safeName = String(namaSiswa).replace(/\s+/g, '_');
-  const safeMat = String(matTitle).replace(/\s+/g, '_');
-
-  try {
-    await html2pdf().set({
-      margin: 10, filename: 'Laporan_' + safeName + '_' + safeMat + '.pdf',
-      image: { type:'jpeg', quality:0.98 },
-      html2canvas: { scale:2, useCORS:true },
-      jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
-    }).from(wrap).save();
-    this.toast('Laporan PDF topik berhasil diunduh.', 'success');
-  } catch (e) {
-    console.error('PDF Error:', e);
-    this.toast('Gagal buat PDF: ' + e.message, 'error');
-  }
-}
-
-    async callAI(prompt) {
+    // FITUR AI
+        async callAI(prompt) {
       if (this.cfg.aiProvider === 'gemini') {
         if (!this.cfg.geminiKey) throw new Error('Gemini API Key belum diisi di Settings.');
         const model = this.cfg.geminiModel || 'gemini-1.5-flash'; 
@@ -1483,7 +1463,7 @@ function app() {
       } catch (e) { this.toast('AI error: ' + e.message, 'error'); }
       finally { this.aiMaterial.loading = false; }
     },
-    async aiGenerateQuiz() {
+        async aiGenerateQuiz() {
       if (!this.selectedMaterialId) return this.toast('Pilih materi dulu.', 'error');
       if (!this.aiQuiz.topic.trim()) return this.toast('Isi topik soal.', 'error');
       this.aiQuiz.loading = true;
@@ -1492,6 +1472,7 @@ function app() {
         const prompt = 'Buat ' + n + ' soal pilihan ganda Bahasa Indonesia tentang topik: "' + this.aiQuiz.topic + '". Kembalikan HANYA JSON array valid (tanpa code fence): [{"question":"...","options":["...","...","...","..."],"correct_option":0,"explanation":"..."}]';
         const aiText = await this.callAI(prompt);
         
+        // Bersihkan format markdown code block jika ada
         let cleanText = aiText.trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
         const arr = JSON.parse(cleanText);
         
@@ -2080,26 +2061,43 @@ function app() {
               <thead class="bg-slate-100 dark:bg-slate-800 text-xs uppercase text-slate-600 dark:text-slate-400">
                 <tr>
                   <th class="text-left px-4 py-3 font-bold">Materi / Topik</th>
+                  <th class="text-center px-4 py-3 font-bold">Skor / Hasil</th>
                   <th class="text-center px-4 py-3 font-bold">Aksi</th>
                 </tr>
               </thead>
               <tbody>
-                <!-- Looping materi yang ada di kelas tersebut -->
-                <template x-for="mat in materials.filter(m => m.class_id === selectedReportClassId)" :key="mat.id">
-                  <tr class="border-t border-slate-200 dark:border-slate-800">
-                    <td class="px-4 py-3 font-semibold" x-text="mat.title"></td>
-                    <td class="px-4 py-3 text-center">
-                      <!-- Tombol unduh kirim classId, siswaId, dan mat.id -->
-                      <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId, mat.id)" class="btn btn-orange btn-sm">
-                        <i data-lucide="download" class="w-3 h-3"></i> Unduh PDF
-                      </button>
-                    </td>
-                  </tr>
+                <!-- Looping per Materi, bukan per soal -->
+                <template x-for="mat in [...new Set(submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).map(s => s.quizzes?.materials?.id))]" :key="mat">
+                  <template x-if="mat">
+                    <tr class="border-t border-slate-200 dark:border-slate-800">
+                      <!-- Ambil Judul Materi -->
+                      <td class="px-4 py-3 font-semibold" x-text="submissions.find(s => s.quizzes?.materials?.id === mat)?.quizzes?.materials?.title || 'Materi'"></td>
+                      
+                      <!-- Hitung Skor Materi Tersebut -->
+                      <td class="px-4 py-3 text-center">
+                        <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'pg').length > 0">
+                          <span class="font-bold text-emerald-600">
+                            <span x-text="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.is_correct).length"></span> / 
+                            <span x-text="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'pg').length"></span> Benar
+                          </span>
+                        </template>
+                        <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.id === mat && s.quizzes?.type === 'essay').length > 0">
+                          <div class="text-xs text-orange-500 font-bold mt-1">Ada Soal Esai</div>
+                        </template>
+                      </td>
+
+                      <!-- Tombol Unduh Per Topik -->
+                      <td class="px-4 py-3 text-center">
+                        <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId, mat)" class="btn btn-orange btn-sm">
+                          <i data-lucide="download" class="w-3 h-3"></i> Unduh PDF
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
                 </template>
                 
-                <!-- Jika tidak ada materi -->
-                <template x-if="materials.filter(m => m.class_id === selectedReportClassId).length === 0">
-                  <tr><td colspan="2" class="text-center py-8 text-slate-400 italic">Belum ada materi di kelas ini.</td></tr>
+                <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).length === 0">
+                  <tr><td colspan="3" class="text-center py-8 text-slate-400 italic">Siswa ini belum mengerjakan soal apapun di kelas ini.</td></tr>
                 </template>
               </tbody>
             </table>
