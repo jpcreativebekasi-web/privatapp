@@ -1329,22 +1329,24 @@ function app() {
       }).from(wrap).save();
     },
 
-        async exportReportPDF(classId, siswaId, matId) {
+            async exportReportPDF(classId, siswaId, matId) {
+      // 1. Validasi
       if (typeof html2pdf === 'undefined') return this.toast('Library PDF belum siap.', 'error');
       if (!classId || !siswaId || !matId) return this.toast('Data tidak lengkap untuk membuat laporan.', 'error');
 
       const cls = this.classes.find(c => c.id === classId);
       const member = this.membersByClass[classId]?.find(m => m.siswa_id === siswaId);
       const namaSiswa = member?.profiles?.name || 'Siswa';
-      
-      // Ambil hanya data untuk materi yang dipilih
+      const mat = this.materials.find(m => m.id === matId);
+      const matTitle = mat?.title || 'Materi';
+
+      // 2. Ambil data jawaban siswa HANYA untuk materi yang dipilih
       const studentSubs = this.submissions.filter(s => 
         s.siswa_id === siswaId && 
-        s.quizzes?.materials?.id === matId
+        s.quizzes?.material_id === matId
       );
 
-      const matTitle = studentSubs[0]?.quizzes?.materials?.title || 'Materi';
-
+      // 3. Bangun HTML
       let html = '<div style="font-family:Inter,sans-serif;padding:28px;color:#0f172a">';
       html += '<div style="text-align:center; border-bottom:3px solid #0284c7; padding-bottom:12px; margin-bottom:20px">';
       html += '<div style="font-size:24px;font-weight:900;color:#0284c7">LiveLearn — Laporan Hasil Belajar</div>';
@@ -1353,7 +1355,7 @@ function app() {
       html += '</div>';
 
       if (!studentSubs.length) {
-        html += '<div style="text-align:center; padding:20px; color:#ef4444;">Belum ada riwayat pengerjaan soal pada topik ini.</div>';
+        html += '<div style="text-align:center; padding:20px; color:#ef4444;">Siswa belum mengerjakan soal pada topik ini.</div>';
       } else {
         html += '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
         html += '<tr style="background:#e0f2fe;"><th style="padding:8px;border:1px solid #bae6fd; width:40%;">Soal</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Jawaban Siswa</th><th style="padding:8px;border:1px solid #bae6fd; width:30%;">Status / Pembahasan</th></tr>';
@@ -1386,7 +1388,7 @@ function app() {
       html += '<div style="margin-top:30px; text-align:right; font-size:11px; color:#94a3b8;">Dicetak pada: ' + new Date().toLocaleString('id-ID') + '</div>';
       html += '</div>';
 
-      // Cukup SATU deklarasi wrap
+      // 4. Render ke PDF (Cukup SATU variabel wrap)
       const wrap = document.createElement('div');
       wrap.innerHTML = html;
       
@@ -2027,8 +2029,7 @@ function app() {
           </div>
         </div>
 
-        <!-- 3. DETAIL LAPORAN SISWA (Muncul setelah siswa diklik) -->
-                <!-- 3. DETAIL LAPORAN SISWA -->
+                <!-- 3. DETAIL LAPORAN SISWA (Muncul setelah siswa diklik) -->
         <div x-show="selectedReportStudentId" class="card p-5 space-y-4">
           <h4 class="font-bold text-lg">Rekap Nilai: <span x-text="membersOf(selectedReportClassId).find(m => m.siswa_id === selectedReportStudentId)?.profiles?.name || 'Siswa'"></span></h4>
           
@@ -2037,35 +2038,26 @@ function app() {
               <thead class="bg-slate-100 dark:bg-slate-800 text-xs uppercase text-slate-600 dark:text-slate-400">
                 <tr>
                   <th class="text-left px-4 py-3 font-bold">Materi / Topik</th>
-                  <th class="text-center px-4 py-3 font-bold">Skor / Hasil</th>
                   <th class="text-center px-4 py-3 font-bold">Aksi</th>
                 </tr>
               </thead>
               <tbody>
-                <!-- Looping langsung berdasarkan data submission yang ada -->
-                <template x-for="sub in submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId)" :key="sub.id">
+                <!-- Looping materi yang ada di kelas tersebut -->
+                <template x-for="mat in materials.filter(m => m.class_id === selectedReportClassId)" :key="mat.id">
                   <tr class="border-t border-slate-200 dark:border-slate-800">
-                    <!-- Tampilkan Judul Materi -->
-                    <td class="px-4 py-3 font-semibold" x-text="sub.quizzes?.materials?.title || 'Materi Tanpa Judul'"></td>
-                    
-                    <!-- Skor per Jawaban -->
+                    <td class="px-4 py-3 font-semibold" x-text="mat.title"></td>
                     <td class="px-4 py-3 text-center">
-                      <span x-show="sub.quizzes?.type === 'pg'" class="font-bold" :class="sub.is_correct ? 'text-emerald-600' : 'text-rose-600'" x-text="sub.is_correct ? 'Benar' : 'Salah'"></span>
-                      <span x-show="sub.quizzes?.type === 'essay'" class="text-xs text-orange-500 font-bold">Esai (Perlu Dinilai)</span>
-                    </td>
-
-                    <!-- Tombol Unduh, kirim classId, siswaId, dan MATERI ID (dari sub.quizzes.material_id) -->
-                    <td class="px-4 py-3 text-center">
-                      <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId, sub.quizzes.material_id)" class="btn btn-orange btn-sm">
+                      <!-- Tombol unduh kirim classId, siswaId, dan mat.id -->
+                      <button @click="exportReportPDF(selectedReportClassId, selectedReportStudentId, mat.id)" class="btn btn-orange btn-sm">
                         <i data-lucide="download" class="w-3 h-3"></i> Unduh PDF
                       </button>
                     </td>
                   </tr>
                 </template>
                 
-                <!-- Jika Kosong -->
-                <template x-if="submissions.filter(s => s.siswa_id === selectedReportStudentId && s.quizzes?.materials?.class_id === selectedReportClassId).length === 0">
-                  <tr><td colspan="3" class="text-center py-8 text-slate-400 italic">Siswa ini belum mengerjakan soal apapun di kelas ini.</td></tr>
+                <!-- Jika tidak ada materi -->
+                <template x-if="materials.filter(m => m.class_id === selectedReportClassId).length === 0">
+                  <tr><td colspan="2" class="text-center py-8 text-slate-400 italic">Belum ada materi di kelas ini.</td></tr>
                 </template>
               </tbody>
             </table>
